@@ -54,16 +54,25 @@ class MainWindow(wx.Frame):
 
         self.panel = wx.Panel(self, wx.ID_ANY)
 
-        self.data_grid = DataGrid(self.panel)
+        self.data_grid_panel = wx.Panel(self.panel, wx.ID_ANY)
+        self.data_grid_panel.SetBackgroundColour("grey")
+        self.summary_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.panel, "Field Summary")
 
-        info_box = wx.StaticBox(self.panel, -1, 'Field Information')
-        self.info_box_sizer = wx.StaticBoxSizer(info_box, wx.VERTICAL)
-        lbl = wx.StaticText(info_box, label="Field info here")
-        self.info_box_sizer.Add(lbl)
+        self.data_grid = DataGrid(self.data_grid_panel)
+
+        self.edit_box = wx.StaticBox(self.panel, -1, 'Edit')
+
+        self.summary_table = wx.ListCtrl(self.panel, style=wx.LC_REPORT)
+        self.summary_table.InsertColumn(0, 'Field')
+        self.summary_table.InsertColumn(1, 'Value')
 
         self.vbox = wx.BoxSizer(wx.VERTICAL)
-        self.vbox.Add(self.data_grid, 1, wx.EXPAND, 5)
-        self.vbox.Add(self.info_box_sizer, 1, wx.ALL, 10)
+        self.hbox = wx.BoxSizer(wx.HORIZONTAL)
+        self.summary_sizer.Add(self.summary_table, 1, wx.EXPAND)
+        self.hbox.Add(self.summary_sizer, 1, wx.EXPAND)
+        self.hbox.Add(self.edit_box, 1, wx.EXPAND)
+        self.vbox.Add(self.data_grid_panel, 1, wx.ALL|wx.EXPAND, 5)
+        self.vbox.Add(self.hbox, 0, wx.ALL|wx.EXPAND, 5)
         self.panel.SetSizer(self.vbox)
 
 
@@ -85,6 +94,11 @@ class MainWindow(wx.Frame):
                     sel_worksheet = worksheets[0]
                 df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
                 self.data_grid.set_table(df.head(20))
+                self.data_grid.Fit()
+                summary = df['Weight'].describe()
+                for n,k in enumerate(summary.keys()):
+                    self.summary_table.InsertItem(n,k)
+                    self.summary_table.SetItem(n, 1, str(summary[k]))
                 self.Refresh()
         else:
             wx.MessageDialog(self, 'No File Path Found!',
