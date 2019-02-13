@@ -34,6 +34,9 @@ class DataTable(GridTableBase):
     def SetValue(self, row, col, value):
         self.df.iloc[row, col] = value
 
+    def GetColLabelValue(self, col):
+        return self.df.columns[col]
+
 
 class DataGrid(wx.grid.Grid):
     def __init__(self, parent):
