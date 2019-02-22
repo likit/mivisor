@@ -57,6 +57,7 @@ class MainWindow(wx.Frame):
         self.data_grid_panel = wx.Panel(self.panel, wx.ID_ANY)
         self.data_grid_panel.SetBackgroundColour("grey")
         self.summary_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.panel, "Field Summary")
+        self.field_attr_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.panel, "Field Attributes")
 
         self.data_grid = DataGrid(self.data_grid_panel)
 
@@ -66,13 +67,26 @@ class MainWindow(wx.Frame):
         self.summary_table.InsertColumn(0, 'Field')
         self.summary_table.InsertColumn(1, 'Value')
 
+        self.field_attr_list = wx.ListCtrl(self.panel, style=wx.LC_REPORT)
+        self.field_attr_list.InsertColumn(0, 'Field name')
+        self.field_attr_list.InsertColumn(1, 'Alias name')
+        self.field_attr_list.InsertColumn(2, 'Type')
+        self.field_attr_list.InsertColumn(3, 'Primary Key')
+        self.field_attr_list.InsertColumn(4, 'Organism')
+        self.field_attr_list.InsertColumn(5, 'Drug')
+        self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.onFieldAttrListItemSelected)
+
+        self.summary_sizer.Add(self.summary_table, 1, wx.EXPAND)
+        self.field_attr_sizer.Add(self.field_attr_list, 1, wx.EXPAND)
+
         self.vbox = wx.BoxSizer(wx.VERTICAL)
         self.hbox = wx.BoxSizer(wx.HORIZONTAL)
-        self.summary_sizer.Add(self.summary_table, 1, wx.EXPAND)
+
         self.hbox.Add(self.summary_sizer, 1, wx.EXPAND)
         self.hbox.Add(self.edit_box, 1, wx.EXPAND)
-        self.vbox.Add(self.data_grid_panel, 1, wx.ALL|wx.EXPAND, 5)
-        self.vbox.Add(self.hbox, 0, wx.ALL|wx.EXPAND, 5)
+        self.vbox.Add(self.data_grid_panel, 1, wx.ALL|wx.EXPAND, 3)
+        self.vbox.Add(self.field_attr_sizer, 1, wx.ALL|wx.EXPAND, 3)
+        self.vbox.Add(self.hbox, 0, wx.ALL|wx.EXPAND, 3)
         self.panel.SetSizer(self.vbox)
 
 
@@ -93,13 +107,9 @@ class MainWindow(wx.Frame):
                 else:
                     sel_worksheet = worksheets[0]
                 df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
-                self.data_grid.set_table(df.head(20))
+                self.data_grid.set_table(df)
                 self.data_grid.Fit()
-                summary = df['Weight'].describe()
-                for n,k in enumerate(summary.keys()):
-                    self.summary_table.InsertItem(n,k)
-                    self.summary_table.SetItem(n, 1, str(summary[k]))
-                self.Refresh()
+                self.update_field_attrs(df)
         else:
             wx.MessageDialog(self, 'No File Path Found!',
                              'Please enter/select the file path.',
@@ -119,3 +129,35 @@ class MainWindow(wx.Frame):
             wx.MessageDialog(self, 'No File Path Found!',
                              'Please enter/select the file path.',
                              wx.OK|wx.CENTER).ShowModal()
+
+    def reset_summary_table(self, desc):
+        self.summary_table.ClearAll()
+        self.summary_table.InsertColumn(0, 'Field')
+        self.summary_table.InsertColumn(1, 'Value')
+        for n,k in enumerate(desc.keys()):
+            print(n,k)
+            self.summary_table.InsertItem(n,k)
+            self.summary_table.SetItem(n, 1, str(desc[k]))
+
+    def onFieldAttrListItemSelected(self, evt):
+        index = evt.GetIndex()
+        col = self.data_grid.table.df.columns[index]
+        desc = self.data_grid.table.df[col].describe()
+        self.reset_summary_table(desc=desc)
+
+    def update_field_attrs(self, df):
+        self.field_attr_list.ClearAll()
+        self.field_attr_list.InsertColumn(0, 'Field name')
+        self.field_attr_list.InsertColumn(1, 'Alias name')
+        self.field_attr_list.InsertColumn(2, 'Type')
+        self.field_attr_list.InsertColumn(3, 'Primary Key')
+        self.field_attr_list.InsertColumn(4, 'Organism')
+        self.field_attr_list.InsertColumn(5, 'Drug')
+        for n,k in enumerate(df.columns):
+            print(n,k)
+            self.field_attr_list.InsertItem(n, k)
+            self.field_attr_list.SetItem(n, 1, k)
+            self.field_attr_list.SetItem(n, 2, str(df[k].dtype))
+            self.field_attr_list.SetItem(n, 3, 'no')
+            self.field_attr_list.SetItem(n, 4, 'no')
+            self.field_attr_list.SetItem(n, 5, 'no')
