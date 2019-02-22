@@ -3,6 +3,30 @@ import pandas
 import xlrd
 from components.datatable import DataGrid
 
+
+current_column = None
+
+class FieldAttribute():
+    def __init__(self, data_frame):
+        self.data = {}
+        for n, column in enumerate(data_frame.columns):
+            self.data[column] = {'index': n,
+                                 'name': column,
+                                 'alias': column,
+                                 'organism': False,
+                                 'key': False,
+                                 'drug': False,
+                                 'type': str(data_frame[column].dtype),
+                                 }
+
+    @property
+    def columns(self):
+        return len(self.data)
+
+    def values(self):
+        return self.data.values()
+
+
 def browse(filetype='MLAB'):
     file_meta = {
         'MLAB': {
@@ -109,7 +133,8 @@ class MainWindow(wx.Frame):
                 df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
                 self.data_grid.set_table(df)
                 self.data_grid.Fit()
-                self.update_field_attrs(df)
+                self.field_attr = FieldAttribute(df)
+                self.update_field_attrs()
         else:
             wx.MessageDialog(self, 'No File Path Found!',
                              'Please enter/select the file path.',
@@ -123,8 +148,6 @@ class MainWindow(wx.Frame):
             except FileNotFoundError:
                 wx.MessageDialog(self, 'Cannot download the data file.\nPlease check the file path again.',
                                  'File Not Found!', wx.OK|wx.CENTER).ShowModal()
-            else:
-                print(df.head())
         else:
             wx.MessageDialog(self, 'No File Path Found!',
                              'Please enter/select the file path.',
@@ -135,7 +158,6 @@ class MainWindow(wx.Frame):
         self.summary_table.InsertColumn(0, 'Field')
         self.summary_table.InsertColumn(1, 'Value')
         for n,k in enumerate(desc.keys()):
-            print(n,k)
             self.summary_table.InsertItem(n,k)
             self.summary_table.SetItem(n, 1, str(desc[k]))
 
@@ -145,7 +167,7 @@ class MainWindow(wx.Frame):
         desc = self.data_grid.table.df[col].describe()
         self.reset_summary_table(desc=desc)
 
-    def update_field_attrs(self, df):
+    def update_field_attrs(self):
         self.field_attr_list.ClearAll()
         self.field_attr_list.InsertColumn(0, 'Field name')
         self.field_attr_list.InsertColumn(1, 'Alias name')
@@ -153,11 +175,10 @@ class MainWindow(wx.Frame):
         self.field_attr_list.InsertColumn(3, 'Primary Key')
         self.field_attr_list.InsertColumn(4, 'Organism')
         self.field_attr_list.InsertColumn(5, 'Drug')
-        for n,k in enumerate(df.columns):
-            print(n,k)
-            self.field_attr_list.InsertItem(n, k)
-            self.field_attr_list.SetItem(n, 1, k)
-            self.field_attr_list.SetItem(n, 2, str(df[k].dtype))
-            self.field_attr_list.SetItem(n, 3, 'no')
-            self.field_attr_list.SetItem(n, 4, 'no')
-            self.field_attr_list.SetItem(n, 5, 'no')
+        for c in sorted([co for co in self.field_attr.values()], key=lambda x: x['index']):
+            self.field_attr_list.InsertItem(c['index'], c['name'])
+            self.field_attr_list.SetItem(c['index'], 1, c['alias'])
+            self.field_attr_list.SetItem(c['index'], 2, c['type'])
+            self.field_attr_list.SetItem(c['index'], 3, str(c['key']))
+            self.field_attr_list.SetItem(c['index'], 4, str(c['organism']))
+            self.field_attr_list.SetItem(c['index'], 5, str(c['drug']))
