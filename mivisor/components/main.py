@@ -16,7 +16,10 @@ class FieldAttribute():
                                  'organism': False,
                                  'key': False,
                                  'drug': False,
+                                 'date': False,
                                  'type': str(data_frame[column].dtype),
+                                 'keep': True,
+                                 'desc': ""
                                  }
 
     @property
@@ -25,6 +28,12 @@ class FieldAttribute():
 
     def values(self):
         return self.data.values()
+
+    def get_column(self, colname):
+        try:
+            return self.data[colname]
+        except KeyError as e:
+            raise AttributeError(e)
 
 
 def browse(filetype='MLAB'):
@@ -61,6 +70,8 @@ class MainWindow(wx.Frame):
         self.SetSize((1200, 800))
         self.Center()
 
+        self.current_column = None
+
         menubar = wx.MenuBar()
         fileMenu = wx.Menu()
         imp = wx.Menu()
@@ -76,28 +87,59 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnLoadMLAB, mlabItem)
         self.Bind(wx.EVT_MENU, self.OnLoadCSV, csvItem)
 
-        self.panel = wx.Panel(self, wx.ID_ANY)
+        # init panels
+        self.preview_panel = wx.Panel(self, wx.ID_ANY)
+        self.summary_panel = wx.Panel(self, wx.ID_ANY)
+        self.attribute_panel = wx.Panel(self, wx.ID_ANY)
+        self.edit_panel = wx.Panel(self, wx.ID_ANY)
 
-        self.data_grid_panel = wx.Panel(self.panel, wx.ID_ANY)
-        self.data_grid_panel.SetBackgroundColour("grey")
-        self.summary_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.panel, "Field Summary")
-        self.field_attr_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.panel, "Field Attributes")
+        # init sizers
+        self.summary_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.summary_panel, "Field Summary")
+        self.field_attr_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.attribute_panel, "Field Attributes")
+        self.edit_box_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.edit_panel, "Edit")
 
-        self.data_grid = DataGrid(self.data_grid_panel)
+        self.summary_panel.SetSizer(self.summary_sizer)
+        self.attribute_panel.SetSizer(self.field_attr_sizer)
+        self.edit_panel.SetSizer(self.edit_box_sizer)
 
-        self.edit_box = wx.StaticBox(self.panel, -1, 'Edit')
+        self.data_grid_box_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.preview_panel, "Data Preview")
+        self.data_grid = DataGrid(self.preview_panel)
+        self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND|wx.ALL)
+        self.preview_panel.SetSizer(self.data_grid_box_sizer)
 
-        self.summary_table = wx.ListCtrl(self.panel, style=wx.LC_REPORT)
+        self.key_chkbox = wx.CheckBox(self.edit_panel, -1, label="Key", name="key")
+        self.drug_chkbox = wx.CheckBox(self.edit_panel, -1, label="Drug", name="drug")
+        self.organism_chkbox = wx.CheckBox(self.edit_panel, -1, label="Organism", name="organism")
+        self.keep_chkbox = wx.CheckBox(self.edit_panel, -1, label="Kept", name="keep")
+        self.field_edit_checkboxes = [self.key_chkbox, self.drug_chkbox, self.keep_chkbox, self.organism_chkbox]
+        checkbox_sizer = wx.FlexGridSizer(cols=len(self.field_edit_checkboxes), hgap=4, vgap=0)
+        for chkbox in self.field_edit_checkboxes:
+            checkbox_sizer.Add(chkbox)
+            chkbox.Bind(wx.EVT_CHECKBOX, self.on_edit_save_button_clicked)
+
+        self.field_desc = wx.TextCtrl(self.edit_panel, -1, "", style=wx.TE_MULTILINE, size=(200,100))
+        self.field_alias = wx.TextCtrl(self.edit_panel, -1, "")
+        edit_save_button = wx.Button(self.edit_panel, -1, "Update")
+        edit_save_button.Bind(wx.EVT_BUTTON, self.on_edit_save_button_clicked)
+
+        alias_label = wx.StaticText(self.edit_panel, -1, "Alias")
+        desc_label = wx.StaticText(self.edit_panel, -1, "Description")
+        checkbox_label = wx.StaticText(self.edit_panel, -1, "Marked as")
+        form_sizer = wx.FlexGridSizer(cols=2, hgap=2, vgap=2)
+        form_sizer.AddMany([checkbox_label, checkbox_sizer])
+        form_sizer.AddMany([desc_label, self.field_desc])
+        form_sizer.AddMany([alias_label, self.field_alias])
+        self.edit_box_sizer.Add(checkbox_sizer, 0, flag=wx.ALIGN_LEFT)
+        self.edit_box_sizer.Add(form_sizer, 0, flag=wx.ALIGN_LEFT)
+        self.edit_box_sizer.Add(edit_save_button, 0, flag=wx.ALIGN_CENTER)
+
+
+        self.summary_table = wx.ListCtrl(self.summary_panel, style=wx.LC_REPORT)
         self.summary_table.InsertColumn(0, 'Field')
         self.summary_table.InsertColumn(1, 'Value')
 
-        self.field_attr_list = wx.ListCtrl(self.panel, style=wx.LC_REPORT)
-        self.field_attr_list.InsertColumn(0, 'Field name')
-        self.field_attr_list.InsertColumn(1, 'Alias name')
-        self.field_attr_list.InsertColumn(2, 'Type')
-        self.field_attr_list.InsertColumn(3, 'Primary Key')
-        self.field_attr_list.InsertColumn(4, 'Organism')
-        self.field_attr_list.InsertColumn(5, 'Drug')
+        self.field_attr_list = wx.ListCtrl(self.attribute_panel, style=wx.LC_REPORT)
+        self.add_field_attr_list_column()
         self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.onFieldAttrListItemSelected)
 
         self.summary_sizer.Add(self.summary_table, 1, wx.EXPAND)
@@ -106,12 +148,12 @@ class MainWindow(wx.Frame):
         self.vbox = wx.BoxSizer(wx.VERTICAL)
         self.hbox = wx.BoxSizer(wx.HORIZONTAL)
 
-        self.hbox.Add(self.summary_sizer, 1, wx.EXPAND)
-        self.hbox.Add(self.edit_box, 1, wx.EXPAND)
-        self.vbox.Add(self.data_grid_panel, 1, wx.ALL|wx.EXPAND, 3)
-        self.vbox.Add(self.field_attr_sizer, 1, wx.ALL|wx.EXPAND, 3)
-        self.vbox.Add(self.hbox, 0, wx.ALL|wx.EXPAND, 3)
-        self.panel.SetSizer(self.vbox)
+        self.hbox.Add(self.summary_panel, 1, flag=wx.EXPAND)
+        self.hbox.Add(self.edit_panel, 1, flag=wx.EXPAND)
+        self.vbox.Add(self.preview_panel, 1, flag=wx.EXPAND)
+        self.vbox.Add(self.attribute_panel, flag=wx.EXPAND)
+        self.vbox.Add(self.hbox, flag=wx.ALL|wx.EXPAND)
+        self.SetSizer(self.vbox)
 
 
     def OnQuit(self, e):
@@ -132,7 +174,7 @@ class MainWindow(wx.Frame):
                     sel_worksheet = worksheets[0]
                 df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
                 self.data_grid.set_table(df)
-                self.data_grid.Fit()
+                # self.data_grid.Fit()
                 self.field_attr = FieldAttribute(df)
                 self.update_field_attrs()
         else:
@@ -163,22 +205,45 @@ class MainWindow(wx.Frame):
 
     def onFieldAttrListItemSelected(self, evt):
         index = evt.GetIndex()
-        col = self.data_grid.table.df.columns[index]
-        desc = self.data_grid.table.df[col].describe()
+        self.current_column = self.data_grid.table.df.columns[index]
+        desc = self.data_grid.table.df[self.current_column].describe()
         self.reset_summary_table(desc=desc)
+        for cb in self.field_edit_checkboxes:
+            name = cb.GetName()
+            cb.SetValue(self.field_attr.get_column(self.current_column)[name])
+        self.field_alias.SetValue(self.field_attr.get_column(self.current_column)['alias'])
+        self.field_desc.SetValue(self.field_attr.get_column(self.current_column)['desc'])
+        self.data_grid.SelectCol(index)
 
-    def update_field_attrs(self):
+    def add_field_attr_list_column(self):
         self.field_attr_list.ClearAll()
         self.field_attr_list.InsertColumn(0, 'Field name')
         self.field_attr_list.InsertColumn(1, 'Alias name')
         self.field_attr_list.InsertColumn(2, 'Type')
-        self.field_attr_list.InsertColumn(3, 'Primary Key')
-        self.field_attr_list.InsertColumn(4, 'Organism')
-        self.field_attr_list.InsertColumn(5, 'Drug')
+        self.field_attr_list.InsertColumn(3, 'Key')
+        self.field_attr_list.InsertColumn(4, 'Date')
+        self.field_attr_list.InsertColumn(5, 'Organism')
+        self.field_attr_list.InsertColumn(6, 'Drug')
+        self.field_attr_list.InsertColumn(7, 'Description')
+        self.field_attr_list.InsertColumn(8, 'Keep')
+        self.field_attr_list.SetColumnWidth(7, 300)
+
+    def update_field_attrs(self):
         for c in sorted([co for co in self.field_attr.values()], key=lambda x: x['index']):
             self.field_attr_list.InsertItem(c['index'], c['name'])
             self.field_attr_list.SetItem(c['index'], 1, c['alias'])
             self.field_attr_list.SetItem(c['index'], 2, c['type'])
             self.field_attr_list.SetItem(c['index'], 3, str(c['key']))
-            self.field_attr_list.SetItem(c['index'], 4, str(c['organism']))
-            self.field_attr_list.SetItem(c['index'], 5, str(c['drug']))
+            self.field_attr_list.SetItem(c['index'], 4, str(c['date']))
+            self.field_attr_list.SetItem(c['index'], 5, str(c['organism']))
+            self.field_attr_list.SetItem(c['index'], 6, str(c['drug']))
+            self.field_attr_list.SetItem(c['index'], 7, str(c['desc']))
+            self.field_attr_list.SetItem(c['index'], 8, str(c['keep']))
+
+    def on_edit_save_button_clicked(self, event):
+        for cb in self.field_edit_checkboxes:
+            name = cb.GetName()
+            self.field_attr.get_column(self.current_column)[name] = cb.GetValue()
+        self.field_attr.get_column(self.current_column)['alias'] = self.field_alias.GetValue()
+        self.field_attr.get_column(self.current_column)['desc'] = self.field_desc.GetValue()
+        self.update_field_attrs()
