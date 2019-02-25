@@ -2,15 +2,16 @@ import wx
 import pandas
 import xlrd
 from components.datatable import DataGrid
+from components.fieldcreation import FieldCreateDialog
 
-current_column = None
 
 class FieldAttribute():
     def __init__(self, data_frame):
         self.data = {}
+        self.columns = []
         for n, column in enumerate(data_frame.columns):
-            self.data[column] = {'index': n,
-                                 'name': column,
+            self.columns.append(column)
+            self.data[column] = {'name': column,
                                  'alias': column,
                                  'organism': False,
                                  'key': False,
@@ -18,12 +19,8 @@ class FieldAttribute():
                                  'date': False,
                                  'type': str(data_frame[column].dtype),
                                  'keep': True,
-                                 'desc': ""
+                                 'desc': "",
                                  }
-
-    @property
-    def columns(self):
-        return len(self.data)
 
     def values(self):
         return self.data.values()
@@ -33,6 +30,27 @@ class FieldAttribute():
             return self.data[colname]
         except KeyError as e:
             raise AttributeError(e)
+
+    def iget_column(self, index):
+        try:
+            return self.columns[index]
+        except IndexError:
+            return None
+
+    def get_col_index(self, colname):
+        try:
+            return self.columns.index(colname)
+        except ValueError:
+            return -1
+
+    def is_col_aggregate(self, colname):
+        if colname in self.data:
+            if self.data[colname].get('aggregate'):
+                return True
+            else:
+                return False
+        else:
+            raise KeyError
 
 
 def browse(filetype='MLAB'):
@@ -56,7 +74,7 @@ def browse(filetype='MLAB'):
 
 def show_sheets(parent, worksheets):
     dlg = wx.SingleChoiceDialog(None,
-            "Select a worksheet", "Worksheets", worksheets)
+                                "Select a worksheet", "Worksheets", worksheets)
     if dlg.ShowModal() == wx.ID_OK:
         return dlg.GetStringSelection()
     dlg.Destroy()
@@ -73,13 +91,18 @@ class MainWindow(wx.Frame):
 
         menubar = wx.MenuBar()
         fileMenu = wx.Menu()
+        dataMenu = wx.Menu()
+        fieldMenu = wx.Menu()
         imp = wx.Menu()
         mlabItem = imp.Append(wx.ID_ANY, 'MLAB')
         csvItem = imp.Append(wx.ID_ANY, 'CSV')
         fileMenu.AppendSeparator()
         fileMenu.Append(wx.ID_ANY, 'I&mport', imp)
         exitItem = fileMenu.Append(wx.ID_EXIT, 'Quit', 'Quit Application')
+        createFieldItem = fieldMenu.Append(wx.ID_ANY, 'Aggregate')
+        dataMenu.Append(wx.ID_ANY, 'Field', fieldMenu)
         menubar.Append(fileMenu, '&File')
+        menubar.Append(dataMenu, '&Data')
         self.SetMenuBar(menubar)
 
         accel_tbl = wx.AcceleratorTable([
@@ -90,6 +113,8 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnQuit, exitItem)
         self.Bind(wx.EVT_MENU, self.OnLoadMLAB, mlabItem)
         self.Bind(wx.EVT_MENU, self.OnLoadCSV, csvItem)
+
+        self.Bind(wx.EVT_MENU, self.OnCreateField, createFieldItem)
 
         # init panels
         self.preview_panel = wx.Panel(self, wx.ID_ANY)
@@ -108,7 +133,7 @@ class MainWindow(wx.Frame):
 
         self.data_grid_box_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.preview_panel, "Data Preview")
         self.data_grid = DataGrid(self.preview_panel)
-        self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND|wx.ALL)
+        self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND | wx.ALL)
         self.preview_panel.SetSizer(self.data_grid_box_sizer)
 
         self.key_chkbox = wx.CheckBox(self.edit_panel, -1, label="Key", name="key")
@@ -121,7 +146,7 @@ class MainWindow(wx.Frame):
             checkbox_sizer.Add(chkbox)
             chkbox.Bind(wx.EVT_CHECKBOX, self.on_edit_save_button_clicked)
 
-        self.field_desc = wx.TextCtrl(self.edit_panel, -1, "", style=wx.TE_MULTILINE, size=(200,100))
+        self.field_desc = wx.TextCtrl(self.edit_panel, -1, "", style=wx.TE_MULTILINE, size=(200, 100))
         self.field_alias = wx.TextCtrl(self.edit_panel, -1, "")
         edit_save_button = wx.Button(self.edit_panel, -1, "Update")
         edit_save_button.Bind(wx.EVT_BUTTON, self.on_edit_save_button_clicked)
@@ -136,7 +161,6 @@ class MainWindow(wx.Frame):
         self.edit_box_sizer.Add(checkbox_sizer, 0, flag=wx.ALIGN_LEFT)
         self.edit_box_sizer.Add(form_sizer, 0, flag=wx.ALIGN_LEFT)
         self.edit_box_sizer.Add(edit_save_button, 0, flag=wx.ALIGN_CENTER)
-
 
         self.summary_table = wx.ListCtrl(self.summary_panel, style=wx.LC_REPORT)
         self.summary_table.InsertColumn(0, 'Field')
@@ -156,9 +180,8 @@ class MainWindow(wx.Frame):
         self.hbox.Add(self.edit_panel, 1, flag=wx.EXPAND)
         self.vbox.Add(self.preview_panel, 1, flag=wx.EXPAND)
         self.vbox.Add(self.attribute_panel, flag=wx.EXPAND)
-        self.vbox.Add(self.hbox, flag=wx.ALL|wx.EXPAND)
+        self.vbox.Add(self.hbox, flag=wx.ALL | wx.EXPAND)
         self.SetSizer(self.vbox)
-
 
     def OnQuit(self, e):
         self.Close()
@@ -170,7 +193,7 @@ class MainWindow(wx.Frame):
                 worksheets = xlrd.open_workbook(filepath).sheet_names()
             except FileNotFoundError:
                 wx.MessageDialog(self, 'Cannot download the data file.\nPlease check the file path again.',
-                            'File Not Found!', wx.OK|wx.CENTER).ShowModal()
+                                 'File Not Found!', wx.OK | wx.CENTER).ShowModal()
             else:
                 if len(worksheets) > 1:
                     sel_worksheet = show_sheets(self, worksheets)
@@ -178,13 +201,12 @@ class MainWindow(wx.Frame):
                     sel_worksheet = worksheets[0]
                 df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
                 self.data_grid.set_table(df)
-                # self.data_grid.Fit()
                 self.field_attr = FieldAttribute(df)
                 self.update_field_attrs()
         else:
             wx.MessageDialog(self, 'No File Path Found!',
                              'Please enter/select the file path.',
-                             wx.OK|wx.CENTER).ShowModal()
+                             wx.OK | wx.CENTER).ShowModal()
 
     def OnLoadCSV(self, e):
         filepath = browse('CSV')
@@ -193,18 +215,66 @@ class MainWindow(wx.Frame):
                 df = pandas.read_csv(filepath)
             except FileNotFoundError:
                 wx.MessageDialog(self, 'Cannot download the data file.\nPlease check the file path again.',
-                                 'File Not Found!', wx.OK|wx.CENTER).ShowModal()
+                                 'File Not Found!', wx.OK | wx.CENTER).ShowModal()
         else:
             wx.MessageDialog(self, 'No File Path Found!',
                              'Please enter/select the file path.',
-                             wx.OK|wx.CENTER).ShowModal()
+                             wx.OK | wx.CENTER).ShowModal()
+
+    def OnCreateField(self, event):
+        columns = []
+        for c in self.field_attr.columns:
+            col = self.field_attr.get_column(c)
+            if col['keep']:
+                columns.append(col['alias'])
+
+        dlg = wx.SingleChoiceDialog(None,
+                                    "Select a column", "Kept columns", columns)
+        if dlg.ShowModal() == wx.ID_OK:
+            sel_col = dlg.GetStringSelection()
+        dlg.Destroy()
+        if sel_col:
+            sel_col_index = self.field_attr.get_col_index(sel_col)
+
+            values = self.data_grid.table.df[sel_col].unique()
+            _df = pandas.DataFrame({'Value': values, 'Group': values})
+            fc = FieldCreateDialog()
+            fc.grid.set_table(_df)
+            resp = fc.ShowModal()
+
+            if resp == wx.ID_OK:
+                _agg_dict = {}
+                for idx, row in fc.grid.table.df.iterrows():
+                    _agg_dict[row['Value']] = row['Group']
+
+                _agg_data = []
+                for value in self.data_grid.table.df[sel_col]:
+                    _agg_data.append(_agg_dict[value])
+                new_col = fc.field_name.GetValue()
+                self.data_grid.table.df.insert(sel_col_index+1, new_col, value=_agg_data)
+                self.field_attr.columns.insert(sel_col_index+1, new_col)
+                self.field_attr.data[new_col] = {
+                    'name': new_col,
+                    'alias': new_col,
+                    'organism': False,
+                    'key': False,
+                    'drug': False,
+                    'date': False,
+                    'type': str(self.data_grid.table.df[new_col].dtype),
+                    'keep': True,
+                    'desc': "",
+                    'aggregate': {
+                        'from': sel_col,
+                    }
+                }
+                self.update_field_attrs()
 
     def reset_summary_table(self, desc):
         self.summary_table.ClearAll()
         self.summary_table.InsertColumn(0, 'Field')
         self.summary_table.InsertColumn(1, 'Value')
-        for n,k in enumerate(desc.keys()):
-            self.summary_table.InsertItem(n,k)
+        for n, k in enumerate(desc.keys()):
+            self.summary_table.InsertItem(n, k)
             self.summary_table.SetItem(n, 1, str(desc[k]))
 
     def onFieldAttrListItemSelected(self, evt):
@@ -233,16 +303,17 @@ class MainWindow(wx.Frame):
         self.field_attr_list.SetColumnWidth(7, 300)
 
     def update_field_attrs(self):
-        for c in sorted([co for co in self.field_attr.values()], key=lambda x: x['index']):
-            self.field_attr_list.InsertItem(c['index'], c['name'])
-            self.field_attr_list.SetItem(c['index'], 1, c['alias'])
-            self.field_attr_list.SetItem(c['index'], 2, c['type'])
-            self.field_attr_list.SetItem(c['index'], 3, str(c['key']))
-            self.field_attr_list.SetItem(c['index'], 4, str(c['date']))
-            self.field_attr_list.SetItem(c['index'], 5, str(c['organism']))
-            self.field_attr_list.SetItem(c['index'], 6, str(c['drug']))
-            self.field_attr_list.SetItem(c['index'], 7, str(c['desc']))
-            self.field_attr_list.SetItem(c['index'], 8, str(c['keep']))
+        for n, c in enumerate(self.field_attr.columns):
+            col = self.field_attr.get_column(c)
+            self.field_attr_list.InsertItem(n, col['name'])
+            self.field_attr_list.SetItem(n, 1, col['alias'])
+            self.field_attr_list.SetItem(n, 2, col['type'])
+            self.field_attr_list.SetItem(n, 3, str(col['key']))
+            self.field_attr_list.SetItem(n, 4, str(col['date']))
+            self.field_attr_list.SetItem(n, 5, str(col['organism']))
+            self.field_attr_list.SetItem(n, 6, str(col['drug']))
+            self.field_attr_list.SetItem(n, 7, str(col['desc']))
+            self.field_attr_list.SetItem(n, 8, str(col['keep']))
 
     def on_edit_save_button_clicked(self, event):
         for cb in self.field_edit_checkboxes:
