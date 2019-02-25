@@ -3,7 +3,6 @@ import pandas
 import xlrd
 from components.datatable import DataGrid
 
-
 current_column = None
 
 class FieldAttribute():
@@ -79,11 +78,16 @@ class MainWindow(wx.Frame):
         csvItem = imp.Append(wx.ID_ANY, 'CSV')
         fileMenu.AppendSeparator()
         fileMenu.Append(wx.ID_ANY, 'I&mport', imp)
-        fileItem = fileMenu.Append(wx.ID_EXIT, 'Quit', 'Quit Application')
+        exitItem = fileMenu.Append(wx.ID_EXIT, 'Quit', 'Quit Application')
         menubar.Append(fileMenu, '&File')
         self.SetMenuBar(menubar)
 
-        self.Bind(wx.EVT_MENU, self.OnQuit, fileItem)
+        accel_tbl = wx.AcceleratorTable([
+            (wx.ACCEL_CTRL, ord('M'), mlabItem.GetId()),
+        ])
+        self.SetAcceleratorTable(accel_tbl)
+
+        self.Bind(wx.EVT_MENU, self.OnQuit, exitItem)
         self.Bind(wx.EVT_MENU, self.OnLoadMLAB, mlabItem)
         self.Bind(wx.EVT_MENU, self.OnLoadCSV, csvItem)
 
