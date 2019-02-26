@@ -88,6 +88,7 @@ class MainWindow(wx.Frame):
         self.Center()
 
         self.current_column = None
+        self.data_loaded = False
         df = pandas.DataFrame({'Name': ['Mivisor'],
                                     'Version': ['0.1'],
                                     'Description': ['User-friendly app for microbiological data analytics.'],
@@ -190,8 +191,8 @@ class MainWindow(wx.Frame):
     def OnQuit(self, e):
         self.Close()
 
-    def OnLoadMLAB(self, e):
-        filepath = browse('MLAB')
+    def load_datafile(self, filetype='MLAB'):
+        filepath = browse(filetype)
         if filepath:
             try:
                 worksheets = xlrd.open_workbook(filepath).sheet_names()
@@ -205,6 +206,7 @@ class MainWindow(wx.Frame):
                     sel_worksheet = worksheets[0]
                 df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
                 if not df.empty:
+                    self.data_loaded = True
                     self.data_grid_box_sizer.Remove(0)
                     self.data_grid.Destroy()
                     self.data_grid = DataGrid(self.preview_panel)
@@ -215,9 +217,20 @@ class MainWindow(wx.Frame):
                     self.field_attr = FieldAttribute(df)
                     self.update_field_attrs()
         else:
-            wx.MessageDialog(self, 'No File Path Found!',
+            wx.MessageDialog(self, 'File path is not specified!',
                              'Please enter/select the file path.',
                              wx.OK | wx.CENTER).ShowModal()
+
+    def OnLoadMLAB(self, e):
+        if self.data_loaded:
+            dlg = wx.MessageDialog(None, "Click \"Yes\" to continue or click \"No\" to return to your session.",
+                                   "Data in this current session will be discarded!",
+                                   wx.YES_NO | wx.ICON_QUESTION)
+            ret_ = dlg.ShowModal()
+            if ret_ == wx.ID_NO:
+                return
+
+        self.load_datafile()
 
     def OnLoadCSV(self, e):
         filepath = browse('CSV')
