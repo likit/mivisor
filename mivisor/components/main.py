@@ -125,16 +125,12 @@ class MainWindow(wx.Frame):
         # init sizers
         self.summary_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.summary_panel, "Field Summary")
         self.field_attr_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.attribute_panel, "Field Attributes")
-        self.edit_box_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.edit_panel, "Edit")
-
-        self.summary_panel.SetSizer(self.summary_sizer)
-        self.attribute_panel.SetSizer(self.field_attr_sizer)
-        self.edit_panel.SetSizer(self.edit_box_sizer)
-
+        edit_box_sizer = wx.StaticBoxSizer(wx.HORIZONTAL, self.edit_panel, "Edit")
         self.data_grid_box_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.preview_panel, "Data Preview")
+
+
         self.data_grid = DataGrid(self.preview_panel)
         self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND | wx.ALL)
-        self.preview_panel.SetSizer(self.data_grid_box_sizer)
 
         self.key_chkbox = wx.CheckBox(self.edit_panel, -1, label="Key", name="key")
         self.drug_chkbox = wx.CheckBox(self.edit_panel, -1, label="Drug", name="drug")
@@ -146,40 +142,42 @@ class MainWindow(wx.Frame):
             checkbox_sizer.Add(chkbox)
             chkbox.Bind(wx.EVT_CHECKBOX, self.on_edit_save_button_clicked)
 
+        checkbox_label = wx.StaticText(self.edit_panel, -1, "Marked as")
         self.field_desc = wx.TextCtrl(self.edit_panel, -1, "", style=wx.TE_MULTILINE, size=(200, 100))
         self.field_alias = wx.TextCtrl(self.edit_panel, -1, "")
-        edit_save_button = wx.Button(self.edit_panel, -1, "Update")
-        edit_save_button.Bind(wx.EVT_BUTTON, self.on_edit_save_button_clicked)
-
+        self.edit_save_button = wx.Button(self.edit_panel, -1, "Update")
+        self.edit_save_button.Bind(wx.EVT_BUTTON, self.on_edit_save_button_clicked)
         alias_label = wx.StaticText(self.edit_panel, -1, "Alias")
         desc_label = wx.StaticText(self.edit_panel, -1, "Description")
-        checkbox_label = wx.StaticText(self.edit_panel, -1, "Marked as")
         form_sizer = wx.FlexGridSizer(cols=2, hgap=2, vgap=2)
         form_sizer.AddMany([checkbox_label, checkbox_sizer])
         form_sizer.AddMany([desc_label, self.field_desc])
         form_sizer.AddMany([alias_label, self.field_alias])
-        self.edit_box_sizer.Add(checkbox_sizer, 0, flag=wx.ALIGN_LEFT)
-        self.edit_box_sizer.Add(form_sizer, 0, flag=wx.ALIGN_LEFT)
-        self.edit_box_sizer.Add(edit_save_button, 0, flag=wx.ALIGN_CENTER)
+        form_sizer.AddMany([wx.StaticText(self.edit_panel, -1, ""), self.edit_save_button])
+        edit_box_sizer.Add(form_sizer, 1, flag=wx.ALIGN_LEFT)
 
         self.summary_table = wx.ListCtrl(self.summary_panel, style=wx.LC_REPORT)
         self.summary_table.InsertColumn(0, 'Field')
         self.summary_table.InsertColumn(1, 'Value')
+        self.summary_sizer.Add(self.summary_table, 1, wx.EXPAND)
 
         self.field_attr_list = wx.ListCtrl(self.attribute_panel, style=wx.LC_REPORT)
         self.add_field_attr_list_column()
+        self.field_attr_sizer.Add(self.field_attr_list, 1, wx.EXPAND)
         self.Bind(wx.EVT_LIST_ITEM_SELECTED, self.onFieldAttrListItemSelected)
 
-        self.summary_sizer.Add(self.summary_table, 1, wx.EXPAND)
-        self.field_attr_sizer.Add(self.field_attr_list, 1, wx.EXPAND)
+        self.preview_panel.SetSizer(self.data_grid_box_sizer)
+        self.attribute_panel.SetSizer(self.field_attr_sizer)
+        self.summary_panel.SetSizer(self.summary_sizer)
+        self.edit_panel.SetSizer(edit_box_sizer)
 
         self.vbox = wx.BoxSizer(wx.VERTICAL)
         self.hbox = wx.BoxSizer(wx.HORIZONTAL)
 
-        self.hbox.Add(self.summary_panel, 1, flag=wx.EXPAND)
-        self.hbox.Add(self.edit_panel, 1, flag=wx.EXPAND)
+        self.hbox.Add(self.edit_panel, 2, flag=wx.ALL | wx.EXPAND)
+        self.hbox.Add(self.summary_panel, 1, flag=wx.ALL | wx.EXPAND)
         self.vbox.Add(self.preview_panel, 1, flag=wx.EXPAND)
-        self.vbox.Add(self.attribute_panel, flag=wx.EXPAND)
+        self.vbox.Add(self.attribute_panel, flag=wx.ALL | wx.EXPAND)
         self.vbox.Add(self.hbox, flag=wx.ALL | wx.EXPAND)
         self.SetSizer(self.vbox)
 
