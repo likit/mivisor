@@ -1,6 +1,8 @@
+import os
 import wx
 import pandas
 import xlrd
+import json
 from components.datatable import DataGrid
 from components.fieldcreation import FieldCreateDialog
 
@@ -90,9 +92,9 @@ class MainWindow(wx.Frame):
         self.current_column = None
         self.data_loaded = False
         df = pandas.DataFrame({'Name': ['Mivisor'],
-                                    'Version': ['0.1'],
-                                    'Description': ['User-friendly app for microbiological data analytics.'],
-                                    'Contact': ['likit.pre@mahidol.edu']})
+                               'Version': ['0.1'],
+                               'Description': ['User-friendly app for microbiological data analytics.'],
+                               'Contact': ['likit.pre@mahidol.edu']})
 
         menubar = wx.MenuBar()
         fileMenu = wx.Menu()
@@ -103,9 +105,11 @@ class MainWindow(wx.Frame):
         csvItem = imp.Append(wx.ID_ANY, 'CSV')
         fileMenu.AppendSeparator()
         fileMenu.Append(wx.ID_ANY, 'I&mport', imp)
+        fileMenu.AppendSeparator()
+        saveProfileItem = fileMenu.Append(wx.ID_ANY, 'Save profile')
         exitItem = fileMenu.Append(wx.ID_EXIT, 'Quit', 'Quit Application')
-        createFieldItem = fieldMenu.Append(wx.ID_ANY, 'Aggregate')
-        dataMenu.Append(wx.ID_ANY, 'Field', fieldMenu)
+        createFieldItem = fieldMenu.Append(wx.ID_ANY, 'Matching')
+        dataMenu.Append(wx.ID_ANY, 'New field', fieldMenu)
         menubar.Append(fileMenu, '&File')
         menubar.Append(dataMenu, '&Data')
         self.SetMenuBar(menubar)
@@ -120,6 +124,7 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnLoadCSV, csvItem)
 
         self.Bind(wx.EVT_MENU, self.OnCreateField, createFieldItem)
+        self.Bind(wx.EVT_MENU, self.OnSaveProfile, saveProfileItem)
 
         # init panels
         self.preview_panel = wx.Panel(self, wx.ID_ANY)
@@ -132,7 +137,6 @@ class MainWindow(wx.Frame):
         self.field_attr_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.attribute_panel, "Field Attributes")
         edit_box_sizer = wx.StaticBoxSizer(wx.HORIZONTAL, self.edit_panel, "Edit")
         self.data_grid_box_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.preview_panel, "Data Preview")
-
 
         self.data_grid = DataGrid(self.preview_panel)
         self.data_grid.set_table(df)
@@ -191,6 +195,21 @@ class MainWindow(wx.Frame):
     def OnQuit(self, e):
         self.Close()
 
+    def OnSaveProfile(self, event):
+        wildcard = "JSON (*.json)|*.json"
+        with wx.FileDialog(None, "Choose a file", os.getcwd(),
+                           "", wildcard, wx.FC_SAVE) as file_dlg:
+            if file_dlg.ShowModal() == wx.ID_CANCEL:
+                return
+            try:
+                fp = open(file_dlg.GetPath(), 'w')
+                fp.write(json.dumps({'data': self.field_attr.data,
+                                     'columns': self.field_attr.columns},
+                                    indent=2))
+                fp.close()
+            except IOError:
+                print('Cannot save data to file.')
+
     def load_datafile(self, filetype='MLAB'):
         filepath = browse(filetype)
         if filepath:
@@ -212,7 +231,7 @@ class MainWindow(wx.Frame):
                     self.data_grid = DataGrid(self.preview_panel)
                     self.data_grid.set_table(df)
                     self.data_grid.AutoSizeColumns()
-                    self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND|wx.ALL)
+                    self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND | wx.ALL)
                     self.data_grid_box_sizer.Layout()  # repaint the sizer
                     self.field_attr = FieldAttribute(df)
                     self.update_field_attrs()
@@ -275,8 +294,8 @@ class MainWindow(wx.Frame):
                 for value in self.data_grid.table.df[sel_col]:
                     _agg_data.append(_agg_dict[value])
                 new_col = fc.field_name.GetValue()
-                self.data_grid.table.df.insert(sel_col_index+1, new_col, value=_agg_data)
-                self.field_attr.columns.insert(sel_col_index+1, new_col)
+                self.data_grid.table.df.insert(sel_col_index + 1, new_col, value=_agg_data)
+                self.field_attr.columns.insert(sel_col_index + 1, new_col)
                 self.field_attr.data[new_col] = {
                     'name': new_col,
                     'alias': new_col,
@@ -289,6 +308,7 @@ class MainWindow(wx.Frame):
                     'desc': "",
                     'aggregate': {
                         'from': sel_col,
+                        'data': _agg_dict
                     }
                 }
                 self.update_field_attrs()
