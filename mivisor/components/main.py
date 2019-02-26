@@ -88,6 +88,10 @@ class MainWindow(wx.Frame):
         self.Center()
 
         self.current_column = None
+        df = pandas.DataFrame({'Name': ['Mivisor'],
+                                    'Version': ['0.1'],
+                                    'Description': ['User-friendly app for microbiological data analytics.'],
+                                    'Contact': ['likit.pre@mahidol.edu']})
 
         menubar = wx.MenuBar()
         fileMenu = wx.Menu()
@@ -130,6 +134,8 @@ class MainWindow(wx.Frame):
 
 
         self.data_grid = DataGrid(self.preview_panel)
+        self.data_grid.set_table(df)
+        self.data_grid.AutoSizeColumns()
         self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND | wx.ALL)
 
         self.key_chkbox = wx.CheckBox(self.edit_panel, -1, label="Key", name="key")
@@ -198,10 +204,16 @@ class MainWindow(wx.Frame):
                 else:
                     sel_worksheet = worksheets[0]
                 df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
-                self.data_grid.set_table(df)
-                self.data_grid.AutoSizeColumns()
-                self.field_attr = FieldAttribute(df)
-                self.update_field_attrs()
+                if not df.empty:
+                    self.data_grid_box_sizer.Remove(0)
+                    self.data_grid.Destroy()
+                    self.data_grid = DataGrid(self.preview_panel)
+                    self.data_grid.set_table(df)
+                    self.data_grid.AutoSizeColumns()
+                    self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND|wx.ALL)
+                    self.data_grid_box_sizer.Layout()  # repaint the sizer
+                    self.field_attr = FieldAttribute(df)
+                    self.update_field_attrs()
         else:
             wx.MessageDialog(self, 'No File Path Found!',
                              'Please enter/select the file path.',
