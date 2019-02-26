@@ -199,6 +199,7 @@ class MainWindow(wx.Frame):
                     sel_worksheet = worksheets[0]
                 df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
                 self.data_grid.set_table(df)
+                self.data_grid.AutoSizeColumns()
                 self.field_attr = FieldAttribute(df)
                 self.update_field_attrs()
         else:
