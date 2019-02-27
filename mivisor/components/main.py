@@ -8,9 +8,16 @@ from components.fieldcreation import FieldCreateDialog
 
 
 class FieldAttribute():
-    def __init__(self, data_frame):
+    def __init__(self):
         self.data = {}
         self.columns = []
+
+    def update_from_json(self, json_data):
+        json_data = json.loads(json_data)
+        self.columns = json_data['columns']
+        self.data = json_data['data']
+
+    def update_from_dataframe(self, data_frame):
         for n, column in enumerate(data_frame.columns):
             self.columns.append(column)
             self.data[column] = {'name': column,
@@ -90,7 +97,11 @@ class MainWindow(wx.Frame):
         self.Center()
 
         self.current_column = None
+        self.data_filepath = None
+        self.profile_filepath = None
+        self.current_session_id = None
         self.data_loaded = False
+        self.field_attr = FieldAttribute()
         df = pandas.DataFrame({'Name': ['Mivisor'],
                                'Version': ['0.1'],
                                'Description': ['User-friendly app for microbiological data analytics.'],
@@ -106,7 +117,8 @@ class MainWindow(wx.Frame):
         fileMenu.AppendSeparator()
         fileMenu.Append(wx.ID_ANY, 'I&mport', imp)
         fileMenu.AppendSeparator()
-        saveProfileItem = fileMenu.Append(wx.ID_ANY, 'Save profile')
+        loadProfileItem = fileMenu.Append(wx.ID_ANY, 'Load Profile')
+        saveProfileItem = fileMenu.Append(wx.ID_ANY, 'Save Profile')
         exitItem = fileMenu.Append(wx.ID_EXIT, 'Quit', 'Quit Application')
         createFieldItem = fieldMenu.Append(wx.ID_ANY, 'Matching')
         dataMenu.Append(wx.ID_ANY, 'New field', fieldMenu)
@@ -125,6 +137,7 @@ class MainWindow(wx.Frame):
 
         self.Bind(wx.EVT_MENU, self.OnCreateField, createFieldItem)
         self.Bind(wx.EVT_MENU, self.OnSaveProfile, saveProfileItem)
+        self.Bind(wx.EVT_MENU, self.OnLoadProfile, loadProfileItem)
 
         # init panels
         self.preview_panel = wx.Panel(self, wx.ID_ANY)
@@ -195,6 +208,30 @@ class MainWindow(wx.Frame):
     def OnQuit(self, e):
         self.Close()
 
+    def OnLoadProfile(self, event):
+        if not self.data_filepath:
+            dlg = wx.MessageDialog(None,
+                                "No data for this session.",
+                                "Please provide data for this session first.",
+                                wx.OK | wx.CENTER)
+            ret = dlg.ShowModal()
+            return
+
+        wildcard = "JSON (*.json)|*.json"
+        with wx.FileDialog(None, "Choose a file", os.getcwd(),
+                           "", wildcard, wx.FC_OPEN) as file_dlg:
+            if file_dlg.ShowModal() == wx.ID_CANCEL:
+                return
+            try:
+                fp = open(file_dlg.GetPath(), 'r')
+                self.field_attr.update_from_json(fp.read())
+                fp.close()
+                self.update_field_attrs()
+                self.update_edit_panel()
+                self.profile_filepath = file_dlg.GetPath()
+            except IOError:
+                print('Cannot load data from file.')
+
     def OnSaveProfile(self, event):
         wildcard = "JSON (*.json)|*.json"
         with wx.FileDialog(None, "Choose a file", os.getcwd(),
@@ -223,6 +260,7 @@ class MainWindow(wx.Frame):
                     sel_worksheet = show_sheets(self, worksheets)
                 else:
                     sel_worksheet = worksheets[0]
+                self.data_filepath = filepath
                 df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
                 if not df.empty:
                     self.data_loaded = True
@@ -233,8 +271,12 @@ class MainWindow(wx.Frame):
                     self.data_grid.AutoSizeColumns()
                     self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND | wx.ALL)
                     self.data_grid_box_sizer.Layout()  # repaint the sizer
-                    self.field_attr = FieldAttribute(df)
+                    self.field_attr.update_from_dataframe(df)
                     self.update_field_attrs()
+                    self.current_column = self.field_attr.iget_column(0)
+                    self.field_attr_list.Select(0)
+                    # need to enable load profile menu item here
+                    # after refactoring the menu bar
         else:
             wx.MessageDialog(self, 'File path is not specified!',
                              'Please enter/select the file path.',
@@ -321,16 +363,20 @@ class MainWindow(wx.Frame):
             self.summary_table.InsertItem(n, k)
             self.summary_table.SetItem(n, 1, str(desc[k]))
 
+    def update_edit_panel(self):
+        for cb in self.field_edit_checkboxes:
+            name = cb.GetName()
+            cb.SetValue(self.field_attr.get_column(self.current_column)[name])
+
+        self.field_alias.SetValue(self.field_attr.get_column(self.current_column)['alias'])
+        self.field_desc.SetValue(self.field_attr.get_column(self.current_column)['desc'])
+
     def onFieldAttrListItemSelected(self, evt):
         index = evt.GetIndex()
         self.current_column = self.data_grid.table.df.columns[index]
         desc = self.data_grid.table.df[self.current_column].describe()
         self.reset_summary_table(desc=desc)
-        for cb in self.field_edit_checkboxes:
-            name = cb.GetName()
-            cb.SetValue(self.field_attr.get_column(self.current_column)[name])
-        self.field_alias.SetValue(self.field_attr.get_column(self.current_column)['alias'])
-        self.field_desc.SetValue(self.field_attr.get_column(self.current_column)['desc'])
+        self.update_edit_panel()
         self.data_grid.SelectCol(index)
 
     def add_field_attr_list_column(self):
