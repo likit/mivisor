@@ -226,6 +226,18 @@ class MainWindow(wx.Frame):
                 fp = open(file_dlg.GetPath(), 'r')
                 self.field_attr.update_from_json(fp.read())
                 fp.close()
+                for c in self.field_attr.columns:
+                    if self.field_attr.is_col_aggregate(c):
+                        column = self.field_attr.get_column(c)
+                        column_index = self.field_attr.get_col_index(c)
+                        if c not in self.data_grid.table.df.columns:
+                            d = []
+                            from_col = column['aggregate']['from']
+                            dict_ = column['aggregate']['data']
+                            for value in self.data_grid.table.df[from_col]:
+                                d.append(dict_.get(value, value))
+                            self.data_grid.table.df.insert(column_index,
+                                                            c, value=d)
                 self.update_field_attrs()
                 self.update_edit_panel()
                 self.profile_filepath = file_dlg.GetPath()
