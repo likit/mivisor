@@ -343,7 +343,7 @@ class MainWindow(wx.Frame):
         self.field_attr_list.InsertColumn(5, 'Organism')
         self.field_attr_list.InsertColumn(6, 'Drug')
         self.field_attr_list.InsertColumn(7, 'Description')
-        self.field_attr_list.InsertColumn(8, 'Keep')
+        self.field_attr_list.InsertColumn(8, 'Kept')
         self.field_attr_list.SetColumnWidth(7, 300)
 
     def update_field_attrs(self):
