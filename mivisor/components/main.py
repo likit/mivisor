@@ -4,20 +4,24 @@ import pandas
 import xlrd
 import json
 from components.datatable import DataGrid
-from components.fieldcreation import FieldCreateDialog
+from components.fieldcreation import FieldCreateDialog, OrganismFieldFormDialog
 
 
 class FieldAttribute():
     def __init__(self):
         self.data = {}
         self.columns = []
+        self.organisms = {}
 
     def update_from_json(self, json_data):
+        self.columns = []
         json_data = json.loads(json_data)
         self.columns = json_data['columns']
         self.data = json_data['data']
+        self.organisms = json_data['organisms']
 
     def update_from_dataframe(self, data_frame):
+        self.columns = []
         for n, column in enumerate(data_frame.columns):
             self.columns.append(column)
             self.data[column] = {'name': column,
@@ -60,6 +64,11 @@ class FieldAttribute():
                 return False
         else:
             raise KeyError
+
+    def update_organisms(self, df):
+        self.organisms = {}
+        for idx, row in df.iterrows():
+            self.organisms[row[0]] = {'genus': row[1], 'species': row[2]}
 
 
 def browse(filetype='MLAB'):
@@ -114,14 +123,25 @@ class MainWindow(wx.Frame):
         imp = wx.Menu()
         mlabItem = imp.Append(wx.ID_ANY, 'MLAB')
         csvItem = imp.Append(wx.ID_ANY, 'CSV')
+        csvItem.Enable(False)
         fileMenu.AppendSeparator()
         fileMenu.Append(wx.ID_ANY, 'I&mport', imp)
         fileMenu.AppendSeparator()
-        loadProfileItem = fileMenu.Append(wx.ID_ANY, 'Load Profile')
-        saveProfileItem = fileMenu.Append(wx.ID_ANY, 'Save Profile')
+
+        self.loadProfileItem = fileMenu.Append(wx.ID_ANY, 'Load Profile')
+        self.loadProfileItem.Enable(False)
+
+        self.saveProfileItem = fileMenu.Append(wx.ID_ANY, 'Save Profile')
+        self.saveProfileItem.Enable(False)
+
         exitItem = fileMenu.Append(wx.ID_EXIT, 'Quit', 'Quit Application')
         createFieldItem = fieldMenu.Append(wx.ID_ANY, 'Matching')
+
         dataMenu.Append(wx.ID_ANY, 'New field', fieldMenu)
+
+        self.organismItem = dataMenu.Append(wx.ID_ANY, 'Organism')
+        self.organismItem.Enable(False)
+
         menubar.Append(fileMenu, '&File')
         menubar.Append(dataMenu, '&Data')
         self.SetMenuBar(menubar)
@@ -136,8 +156,9 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnLoadCSV, csvItem)
 
         self.Bind(wx.EVT_MENU, self.OnCreateField, createFieldItem)
-        self.Bind(wx.EVT_MENU, self.OnSaveProfile, saveProfileItem)
-        self.Bind(wx.EVT_MENU, self.OnLoadProfile, loadProfileItem)
+        self.Bind(wx.EVT_MENU, self.OnSaveProfile, self.saveProfileItem)
+        self.Bind(wx.EVT_MENU, self.OnLoadProfile, self.loadProfileItem)
+        self.Bind(wx.EVT_MENU, self.OnOrganismClick, self.organismItem)
 
         # init panels
         self.preview_panel = wx.Panel(self, wx.ID_ANY)
@@ -208,6 +229,51 @@ class MainWindow(wx.Frame):
     def OnQuit(self, e):
         self.Close()
 
+    def OnOrganismClick(self, event):
+        columns = []
+        sel_col = None
+        for c in self.field_attr.columns:
+            col = self.field_attr.get_column(c)
+            if col['keep'] and col['organism']:
+                columns.append(col['alias'])
+
+        if not columns:
+            dlg = wx.MessageDialog(None, "No organism field specified.",
+                                   "Please select a field for organism.",
+                                   wx.OK)
+            ret = dlg.ShowModal()
+            if ret == wx.ID_OK:
+                return
+
+        dlg = wx.SingleChoiceDialog(None,
+                                    "Select a column", "Kept columns", columns)
+        if dlg.ShowModal() == wx.ID_OK:
+            sel_col = dlg.GetStringSelection()
+        dlg.Destroy()
+        if sel_col:
+            sel_col_index = self.field_attr.get_col_index(sel_col)
+            column = self.field_attr.get_column(sel_col)
+
+            values = self.data_grid.table.df[sel_col].unique()
+            fc = OrganismFieldFormDialog()
+            if not self.field_attr.organisms:
+                _df = pandas.DataFrame({column['alias']: values, 'genus': None, 'species': None})
+            else:
+                orgs = []
+                genuses = []
+                species = []
+                for org in self.field_attr.organisms:
+                    orgs.append(org)
+                    genuses.append(self.field_attr.organisms[org]['genus'])
+                    species.append(self.field_attr.organisms[org]['species'])
+
+                _df = pandas.DataFrame({column['alias']: orgs, 'genus': genuses, 'species': species})
+
+            fc.grid.set_table(_df)
+            resp = fc.ShowModal()
+            self.field_attr.update_organisms(fc.grid.table.df)
+
+
     def OnLoadProfile(self, event):
         if not self.data_filepath:
             dlg = wx.MessageDialog(None,
@@ -236,8 +302,7 @@ class MainWindow(wx.Frame):
                             dict_ = column['aggregate']['data']
                             for value in self.data_grid.table.df[from_col]:
                                 d.append(dict_.get(value, value))
-                            self.data_grid.table.df.insert(column_index,
-                                                            c, value=d)
+                            self.data_grid.table.df.insert(column_index, c, value=d)
                 self.update_field_attrs()
                 self.update_edit_panel()
                 self.profile_filepath = file_dlg.GetPath()
@@ -253,7 +318,8 @@ class MainWindow(wx.Frame):
             try:
                 fp = open(file_dlg.GetPath(), 'w')
                 fp.write(json.dumps({'data': self.field_attr.data,
-                                     'columns': self.field_attr.columns},
+                                     'columns': self.field_attr.columns,
+                                     'organisms': self.field_attr.organisms},
                                     indent=2))
                 fp.close()
             except IOError:
@@ -261,38 +327,27 @@ class MainWindow(wx.Frame):
 
     def load_datafile(self, filetype='MLAB'):
         filepath = browse(filetype)
-        if filepath:
+        if filepath and os.path.exists(filepath):
             try:
                 worksheets = xlrd.open_workbook(filepath).sheet_names()
             except FileNotFoundError:
-                wx.MessageDialog(self, 'Cannot download the data file.\nPlease check the file path again.',
+                wx.MessageDialog(self,
+                                 'Cannot download the data file.\nPlease check the file path again.',
                                  'File Not Found!', wx.OK | wx.CENTER).ShowModal()
             else:
                 if len(worksheets) > 1:
                     sel_worksheet = show_sheets(self, worksheets)
                 else:
                     sel_worksheet = worksheets[0]
-                self.data_filepath = filepath
                 df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
                 if not df.empty:
-                    self.data_loaded = True
-                    self.data_grid_box_sizer.Remove(0)
-                    self.data_grid.Destroy()
-                    self.data_grid = DataGrid(self.preview_panel)
-                    self.data_grid.set_table(df)
-                    self.data_grid.AutoSizeColumns()
-                    self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND | wx.ALL)
-                    self.data_grid_box_sizer.Layout()  # repaint the sizer
-                    self.field_attr.update_from_dataframe(df)
-                    self.update_field_attrs()
-                    self.current_column = self.field_attr.iget_column(0)
-                    self.field_attr_list.Select(0)
-                    # need to enable load profile menu item here
-                    # after refactoring the menu bar
+                    return df, filepath
+
         else:
-            wx.MessageDialog(self, 'File path is not specified!',
-                             'Please enter/select the file path.',
+            wx.MessageDialog(None, 'File path is not valid!',
+                             'Please check the file path.',
                              wx.OK | wx.CENTER).ShowModal()
+        return pandas.DataFrame(), filepath
 
     def OnLoadMLAB(self, e):
         if self.data_loaded:
@@ -303,7 +358,38 @@ class MainWindow(wx.Frame):
             if ret_ == wx.ID_NO:
                 return
 
-        self.load_datafile()
+        df, filepath = self.load_datafile()
+        if filepath:
+            if df.empty:
+                dlg = wx.MessageDialog(None,
+                                       "Do you want to proceed?\nClick \"Yes\" to continue or \"No\" to cancel.",
+                                       "Warning: dataset is empty.",
+                                       wx.YES_NO | wx.ICON_QUESTION)
+                ret_ = dlg.ShowModal()
+                if ret_ == wx.ID_NO:
+                    return
+
+            self.data_filepath = filepath
+            self.data_loaded = True
+            self.data_grid_box_sizer.Remove(0)
+            self.data_grid.Destroy()
+            self.data_grid = DataGrid(self.preview_panel)
+            self.data_grid.set_table(df)
+            self.data_grid.AutoSizeColumns()
+            self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND | wx.ALL)
+            self.data_grid_box_sizer.Layout()  # repaint the sizer
+            self.field_attr.update_from_dataframe(df)
+            self.field_attr_list.ClearAll()
+            self.add_field_attr_list_column()
+            self.update_field_attrs()
+            if self.field_attr.columns:
+                self.current_column = self.field_attr.iget_column(0)
+                self.field_attr_list.Select(0)
+            self.saveProfileItem.Enable(True)
+            self.loadProfileItem.Enable(True)
+            self.organismItem.Enable(True)
+            # need to enable load profile menu item here
+            # after refactoring the menu bar
 
     def OnLoadCSV(self, e):
         filepath = browse('CSV')
@@ -347,7 +433,7 @@ class MainWindow(wx.Frame):
                 _agg_data = []
                 for value in self.data_grid.table.df[sel_col]:
                     _agg_data.append(_agg_dict[value])
-                new_col = fc.field_name.GetValue()
+                new_col = '@'+fc.field_name.GetValue()
                 self.data_grid.table.df.insert(sel_col_index + 1, new_col, value=_agg_data)
                 self.field_attr.columns.insert(sel_col_index + 1, new_col)
                 self.field_attr.data[new_col] = {
