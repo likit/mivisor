@@ -102,7 +102,7 @@ class MainWindow(wx.Frame):
     def __init__(self, parent):
         super(MainWindow, self).__init__(parent)
         self.SetTitle('Mivisor Version 1.0')
-        self.SetSize((1200, 800))
+        self.SetSize((800, 800))
         self.Center()
 
         self.current_column = None
