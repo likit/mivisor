@@ -138,9 +138,15 @@ class MainWindow(wx.Frame):
         createFieldItem = fieldMenu.Append(wx.ID_ANY, 'Matching')
 
         dataMenu.Append(wx.ID_ANY, 'New field', fieldMenu)
+        dataMenu.AppendSeparator()
 
         self.organismItem = dataMenu.Append(wx.ID_ANY, 'Organism')
         self.organismItem.Enable(False)
+
+        dataMenu.AppendSeparator()
+
+        self.exportRawData = dataMenu.Append(wx.ID_ANY, 'Export raw data')
+        self.exportRawData.Enable(False)
 
         menubar.Append(fileMenu, '&File')
         menubar.Append(dataMenu, '&Data')
@@ -159,6 +165,8 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnSaveProfile, self.saveProfileItem)
         self.Bind(wx.EVT_MENU, self.OnLoadProfile, self.loadProfileItem)
         self.Bind(wx.EVT_MENU, self.OnOrganismClick, self.organismItem)
+
+        self.Bind(wx.EVT_MENU, self.OnExportRawData, self.exportRawData)
 
         # init panels
         self.preview_panel = wx.Panel(self, wx.ID_ANY)
@@ -387,6 +395,7 @@ class MainWindow(wx.Frame):
             self.saveProfileItem.Enable(True)
             self.loadProfileItem.Enable(True)
             self.organismItem.Enable(True)
+            self.exportRawData.Enable(True)
             # need to enable load profile menu item here
             # after refactoring the menu bar
 
@@ -519,3 +528,57 @@ class MainWindow(wx.Frame):
         self.refresh_field_attr_list_column()
         self.field_attr_list.Select(col_index)
         self.field_attr_list.Focus(col_index)
+
+    def OnExportRawData(self, event):
+        info_columns = []
+        drug_columns = []
+        organism_column = None
+        organism_column_index = None
+        for colname in self.field_attr.columns:
+            column = self.field_attr.get_column(colname)
+            if column['keep']:
+                if column['organism']:
+                    organism_column = column
+                    organism_column_index = self.field_attr.get_col_index(colname)
+                elif column['drug']:
+                    drug_columns.append(column)
+                else:
+                    info_columns.append(column)
+        dict_ = {}
+        for column in info_columns:
+            dict_[column['alias']] = self.data_grid.table.df[column['name']]
+
+        genuses = []
+        species = []
+        organisms = []
+        for org in self.data_grid.table.df[organism_column['name']]:
+            organisms.append(org)
+            org_item = self.field_attr.organisms.get(org, {'genus': org, 'species': org})
+            genuses.append(org_item.get('genus', org))
+            species.append(org_item.get('species', org))
+
+        dict_[organism_column['alias']] = organisms
+        dict_['genuses'] = genuses
+        dict_['species'] = species
+
+        cs = [col['alias'] for col in info_columns]
+        cs += [organism_column['alias'], 'genuses', 'species']
+
+        data_draft = []
+        for i in range(len(organisms)):
+            row = [dict_[c][i] for c in cs]
+            for dc in drug_columns:
+                data_draft.append(row + [dc['alias']] + [self.data_grid.table.df[dc['name']][i]])
+
+        exported_data = pandas.DataFrame(data_draft)
+        exported_data.columns = cs + ['drug', 'result']
+
+        wildcard = "Excel (*.xlsx;*.xls)|*.xlsx;*.xls"
+        with wx.FileDialog(None, "Choose a file", os.getcwd(),
+                           "", wildcard, wx.FC_SAVE) as file_dlg:
+            if file_dlg.ShowModal() == wx.ID_CANCEL:
+                return
+            try:
+                exported_data.to_excel(file_dlg.GetPath(), engine='xlsxwriter')
+            except IOError:
+                print('Cannot save data to file.')
