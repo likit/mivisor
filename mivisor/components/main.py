@@ -303,7 +303,7 @@ class MainWindow(wx.Frame):
                             for value in self.data_grid.table.df[from_col]:
                                 d.append(dict_.get(value, value))
                             self.data_grid.table.df.insert(column_index, c, value=d)
-                self.update_field_attrs()
+                self.refresh_field_attr_list_column()
                 self.update_edit_panel()
                 self.profile_filepath = file_dlg.GetPath()
             except IOError:
@@ -380,8 +380,7 @@ class MainWindow(wx.Frame):
             self.data_grid_box_sizer.Layout()  # repaint the sizer
             self.field_attr.update_from_dataframe(df)
             self.field_attr_list.ClearAll()
-            self.add_field_attr_list_column()
-            self.update_field_attrs()
+            self.refresh_field_attr_list_column()
             if self.field_attr.columns:
                 self.current_column = self.field_attr.iget_column(0)
                 self.field_attr_list.Select(0)
@@ -451,7 +450,7 @@ class MainWindow(wx.Frame):
                         'data': _agg_dict
                     }
                 }
-                self.update_field_attrs()
+                self.refresh_field_attr_list_column()
 
     def reset_summary_table(self, desc):
         self.summary_table.ClearAll()
@@ -477,6 +476,12 @@ class MainWindow(wx.Frame):
         self.update_edit_panel()
         self.data_grid.SelectCol(index)
 
+
+    def refresh_field_attr_list_column(self):
+        self.add_field_attr_list_column()
+        self.update_field_attrs()
+
+
     def add_field_attr_list_column(self):
         self.field_attr_list.ClearAll()
         self.field_attr_list.InsertColumn(0, 'Field name')
@@ -489,6 +494,7 @@ class MainWindow(wx.Frame):
         self.field_attr_list.InsertColumn(7, 'Description')
         self.field_attr_list.InsertColumn(8, 'Kept')
         self.field_attr_list.SetColumnWidth(7, 300)
+
 
     def update_field_attrs(self):
         for n, c in enumerate(self.field_attr.columns):
@@ -504,9 +510,12 @@ class MainWindow(wx.Frame):
             self.field_attr_list.SetItem(n, 8, str(col['keep']))
 
     def on_edit_save_button_clicked(self, event):
+        col_index = self.field_attr.get_col_index(self.current_column)
         for cb in self.field_edit_checkboxes:
             name = cb.GetName()
             self.field_attr.get_column(self.current_column)[name] = cb.GetValue()
         self.field_attr.get_column(self.current_column)['alias'] = self.field_alias.GetValue()
         self.field_attr.get_column(self.current_column)['desc'] = self.field_desc.GetValue()
-        self.update_field_attrs()
+        self.refresh_field_attr_list_column()
+        self.field_attr_list.Select(col_index)
+        self.field_attr_list.Focus(col_index)
