@@ -169,16 +169,23 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnExportRawData, self.exportRawData)
 
         # init panels
+        self.info_panel = wx.Panel(self, wx.ID_ANY)
         self.preview_panel = wx.Panel(self, wx.ID_ANY)
         self.summary_panel = wx.Panel(self, wx.ID_ANY)
         self.attribute_panel = wx.Panel(self, wx.ID_ANY)
         self.edit_panel = wx.Panel(self, wx.ID_ANY)
 
         # init sizers
+        self.info_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.info_panel, "Session Information")
         self.summary_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.summary_panel, "Field Summary")
         self.field_attr_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.attribute_panel, "Field Attributes")
         edit_box_sizer = wx.StaticBoxSizer(wx.HORIZONTAL, self.edit_panel, "Edit")
         self.data_grid_box_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.preview_panel, "Data Preview")
+
+        self.profile_lbl = wx.StaticText(self.info_panel, -1, "Profile filepath: ")
+        self.datafile_lbl = wx.StaticText(self.info_panel, -1, "Data filepath: ")
+        self.info_sizer.Add(self.datafile_lbl)
+        self.info_sizer.Add(self.profile_lbl)
 
         self.data_grid = DataGrid(self.preview_panel)
         self.data_grid.set_table(df)
@@ -223,15 +230,17 @@ class MainWindow(wx.Frame):
         self.attribute_panel.SetSizer(self.field_attr_sizer)
         self.summary_panel.SetSizer(self.summary_sizer)
         self.edit_panel.SetSizer(edit_box_sizer)
+        self.info_panel.SetSizer(self.info_sizer)
 
         self.vbox = wx.BoxSizer(wx.VERTICAL)
         self.hbox = wx.BoxSizer(wx.HORIZONTAL)
 
         self.hbox.Add(self.edit_panel, 2, flag=wx.ALL | wx.EXPAND)
         self.hbox.Add(self.summary_panel, 1, flag=wx.ALL | wx.EXPAND)
-        self.vbox.Add(self.preview_panel, 1, flag=wx.EXPAND)
+        self.vbox.Add(self.info_panel, 0, flag=wx.EXPAND | wx.ALL)
+        self.vbox.Add(self.preview_panel, 1, flag=wx.EXPAND | wx.ALL)
         self.vbox.Add(self.attribute_panel, flag=wx.ALL | wx.EXPAND)
-        self.vbox.Add(self.hbox, flag=wx.ALL | wx.EXPAND)
+        self.vbox.Add(self.hbox, flag=wx.ALL | wx.EXPAND | wx.ALL)
         self.SetSizer(self.vbox)
 
     def OnQuit(self, e):
@@ -314,6 +323,7 @@ class MainWindow(wx.Frame):
                 self.refresh_field_attr_list_column()
                 self.update_edit_panel()
                 self.profile_filepath = file_dlg.GetPath()
+                self.profile_lbl.SetLabelText("Profile filepath: {}".format(self.profile_filepath))
             except IOError:
                 print('Cannot load data from file.')
 
@@ -330,6 +340,8 @@ class MainWindow(wx.Frame):
                                      'organisms': self.field_attr.organisms},
                                     indent=2))
                 fp.close()
+                self.profile_filepath = file_dlg.GetPath()
+                self.profile_lbl.SetLabelText("Profile filepath: {}".format(self.profile_filepath))
             except IOError:
                 print('Cannot save data to file.')
 
@@ -378,6 +390,9 @@ class MainWindow(wx.Frame):
                     return
 
             self.data_filepath = filepath
+            self.datafile_lbl.SetLabelText("Data filepath: {}".format(self.data_filepath))
+            self.profile_filepath = ''
+            self.profile_lbl.SetLabelText("Profile filepath: {}".format(self.profile_filepath))
             self.data_loaded = True
             self.data_grid_box_sizer.Remove(0)
             self.data_grid.Destroy()
