@@ -547,14 +547,15 @@ class MainWindow(wx.Frame):
     def OnExportRawData(self, event):
         info_columns = []
         drug_columns = []
+        dup_keys = []
         organism_column = None
-        organism_column_index = None
         for colname in self.field_attr.columns:
             column = self.field_attr.get_column(colname)
             if column['keep']:
+                if column['key'] and not column['organism'] and not column['drug']:
+                    dup_keys.append(column['alias'])
                 if column['organism']:
                     organism_column = column
-                    organism_column_index = self.field_attr.get_col_index(colname)
                 elif column['drug']:
                     drug_columns.append(column)
                 else:
@@ -579,14 +580,17 @@ class MainWindow(wx.Frame):
         cs = [col['alias'] for col in info_columns]
         cs += [organism_column['alias'], 'genuses', 'species']
 
-        data_draft = []
-        for i in range(len(organisms)):
-            row = [dict_[c][i] for c in cs]
-            for dc in drug_columns:
-                data_draft.append(row + [dc['alias']] + [self.data_grid.table.df[dc['name']][i]])
+        exported_data = pandas.DataFrame(dict_)
+        if dup_keys:
+            exported_data = exported_data.drop_duplicates(
+                subset=dup_keys, keep='first'
+            )
 
-        exported_data = pandas.DataFrame(data_draft)
-        exported_data.columns = cs + ['drug', 'result']
+        for i, row in enumerate(exported_data.iterrows()):
+            idx, dat = row
+            for dc in drug_columns:
+                dat['drug'] = dc['alias']
+                dat['result'] = self.data_grid.table.df[dc['name']][i]
 
         wildcard = "Excel (*.xlsx;*.xls)|*.xlsx;*.xls"
         with wx.FileDialog(None, "Choose a file", os.getcwd(),
