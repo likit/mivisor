@@ -3,6 +3,7 @@ import wx
 import pandas
 import xlrd
 import json
+
 from components.datatable import DataGrid
 from components.fieldcreation import FieldCreateDialog, OrganismFieldFormDialog
 
@@ -101,19 +102,21 @@ def show_sheets(parent, worksheets):
 class MainWindow(wx.Frame):
     def __init__(self, parent):
         super(MainWindow, self).__init__(parent)
-        self.SetTitle('Mivisor Version 1.0')
-        self.SetSize((800, 800))
+        scr_width, scr_height = wx.DisplaySize()
+        version_no = '0.12'
+        self.SetTitle('Mivisor Version {}'.format(version_no))
+        self.SetSize((int(scr_width*0.8), int(scr_height*0.8)))
         self.Center()
 
         self.current_column = None
-        self.data_filepath = None
-        self.profile_filepath = None
+        self.data_filepath = 'Unknown'
+        self.profile_filepath = 'Unknown'
         self.current_session_id = None
         self.data_loaded = False
         self.field_attr = FieldAttribute()
         df = pandas.DataFrame({'Name': ['Mivisor'],
-                               'Version': ['0.1'],
-                               'Description': ['User-friendly app for microbiological data analytics.'],
+                               'Version': [version_no],
+                               'Description': ['A user-friendly tool for microbiology lab data management.'],
                                'Contact': ['likit.pre@mahidol.edu']})
 
         menubar = wx.MenuBar()
@@ -182,8 +185,8 @@ class MainWindow(wx.Frame):
         edit_box_sizer = wx.StaticBoxSizer(wx.HORIZONTAL, self.edit_panel, "Edit")
         self.data_grid_box_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.preview_panel, "Data Preview")
 
-        self.profile_lbl = wx.StaticText(self.info_panel, -1, "Profile filepath: ")
-        self.datafile_lbl = wx.StaticText(self.info_panel, -1, "Data filepath: ")
+        self.profile_lbl = wx.StaticText(self.info_panel, -1, "Profile filepath: {}".format(self.profile_filepath))
+        self.datafile_lbl = wx.StaticText(self.info_panel, -1, "Data filepath: {}".format(self.data_filepath))
         self.info_sizer.Add(self.datafile_lbl)
         self.info_sizer.Add(self.profile_lbl)
 
