@@ -192,7 +192,7 @@ class MainWindow(wx.Frame):
 
         self.data_grid = DataGrid(self.preview_panel)
         self.data_grid.set_table(df)
-        self.data_grid.AutoSizeColumns()
+        self.data_grid.AutoSize()
         self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND | wx.ALL)
 
         self.key_chkbox = wx.CheckBox(self.edit_panel, -1, label="Key", name="key")
@@ -323,6 +323,7 @@ class MainWindow(wx.Frame):
                             for value in self.data_grid.table.df[from_col]:
                                 d.append(dict_.get(value, value))
                             self.data_grid.table.df.insert(column_index, c, value=d)
+                self.data_grid.ForceRefresh()
                 self.refresh_field_attr_list_column()
                 self.update_edit_panel()
                 self.profile_filepath = file_dlg.GetPath()
@@ -477,6 +478,7 @@ class MainWindow(wx.Frame):
                         'data': _agg_dict
                     }
                 }
+                self.data_grid.ForceRefresh()
                 self.refresh_field_attr_list_column()
 
     def reset_summary_table(self, desc):
