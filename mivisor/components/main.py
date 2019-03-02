@@ -5,7 +5,10 @@ import xlrd
 import json
 
 from components.datatable import DataGrid
-from components.fieldcreation import FieldCreateDialog, OrganismFieldFormDialog
+from components.fieldcreation import FieldCreateDialog, OrganismFieldFormDialog, DrugRegFormDialog
+
+APPDATA_DIR = 'appdata'
+DRUG_REGISTRY_FILE = 'drugs.json'
 
 
 class FieldAttribute():
@@ -129,6 +132,7 @@ class MainWindow(wx.Frame):
         fileMenu = wx.Menu()
         dataMenu = wx.Menu()
         fieldMenu = wx.Menu()
+        registryMenu = wx.Menu()
         imp = wx.Menu()
         mlabItem = imp.Append(wx.ID_ANY, 'MLAB')
         csvItem = imp.Append(wx.ID_ANY, 'CSV')
@@ -157,8 +161,11 @@ class MainWindow(wx.Frame):
         self.exportRawData = dataMenu.Append(wx.ID_ANY, 'Export raw data')
         self.exportRawData.Enable(False)
 
+        drugRegMenuItem = registryMenu.Append(wx.ID_ANY, 'Drugs')
+
         menubar.Append(fileMenu, '&File')
         menubar.Append(dataMenu, '&Data')
+        menubar.Append(registryMenu, '&Registry')
         self.SetMenuBar(menubar)
 
         accel_tbl = wx.AcceleratorTable([
@@ -176,6 +183,8 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnOrganismClick, self.organismItem)
 
         self.Bind(wx.EVT_MENU, self.OnExportRawData, self.exportRawData)
+
+        self.Bind(wx.EVT_MENU, self.on_drug_reg_menu_click, drugRegMenuItem)
 
         # init panels
         self.info_panel = wx.Panel(self, wx.ID_ANY)
@@ -619,3 +628,16 @@ class MainWindow(wx.Frame):
                 exported_data.to_excel(file_dlg.GetPath(), engine='xlsxwriter')
             except IOError:
                 print('Cannot save data to file.')
+
+
+    def on_drug_reg_menu_click(self, event):
+        if os.path.exists(DRUG_REGISTRY_FILE):
+            try:
+                _df = pandas.read_json(os.path.join(APPDATA_DIR, DRUG_REGISTRY_FILE))
+            except:
+                return
+            else:
+                dr = DrugRegFormDialog()
+                dr.grid.set_table(_df)
+                dr.grid.AutoSize()
+                resp = dr.ShowModal()
