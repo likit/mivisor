@@ -15,11 +15,17 @@ class FieldAttribute():
         self.organisms = {}
 
     def update_from_json(self, json_data):
-        self.columns = []
         json_data = json.loads(json_data)
-        self.columns = json_data['columns']
-        self.data = json_data['data']
-        self.organisms = json_data['organisms']
+        profile_cols = json_data['columns']
+        profile_cols_no_agg = [col for col in profile_cols if not col.startswith('@')]
+        if set(self.columns).difference(set(profile_cols_no_agg)) or \
+                set(profile_cols_no_agg).difference(set(self.columns)):
+            return False
+        else:
+            self.columns = profile_cols
+            self.data = json_data['data']
+            self.organisms = json_data['organisms']
+            return True
 
     def update_from_dataframe(self, data_frame):
         self.columns = []
@@ -310,8 +316,15 @@ class MainWindow(wx.Frame):
                 return
             try:
                 fp = open(file_dlg.GetPath(), 'r')
-                self.field_attr.update_from_json(fp.read())
+                json_data = fp.read()
                 fp.close()
+                if not self.field_attr.update_from_json(json_data):
+                    wx.MessageDialog(self,
+                                     'Fields in the profile and the data do not match.',
+                                     'The profile cannot be loaded',
+                                     wx.ICON_INFORMATION).ShowModal()
+                    return
+
                 for c in self.field_attr.columns:
                     if self.field_attr.is_col_aggregate(c):
                         column = self.field_attr.get_column(c)
