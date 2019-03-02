@@ -1,8 +1,9 @@
 import os
-import wx
 import pandas
 import xlrd
 import json
+import wx, wx.adv, wx.lib
+from wx.lib.wordwrap import wordwrap
 
 from components.datatable import DataGrid
 from components.fieldcreation import FieldCreateDialog, OrganismFieldFormDialog, DrugRegFormDialog
@@ -112,8 +113,9 @@ class MainWindow(wx.Frame):
     def __init__(self, parent):
         super(MainWindow, self).__init__(parent)
         scr_width, scr_height = wx.DisplaySize()
-        version_no = '0.12'
-        self.SetTitle('Mivisor Version {}'.format(version_no))
+        self.version_no = '0.12 Beta'
+        self.description = 'A user-friendly program for microbiological laboratory data management.'
+        self.SetTitle('Mivisor Version {}'.format(self.version_no))
         self.SetSize((int(scr_width*0.8), int(scr_height*0.8)))
         self.Center()
 
@@ -124,8 +126,8 @@ class MainWindow(wx.Frame):
         self.data_loaded = False
         self.field_attr = FieldAttribute()
         df = pandas.DataFrame({'Name': ['Mivisor'],
-                               'Version': [version_no],
-                               'Description': ['A user-friendly tool for microbiology lab data management.'],
+                               'Version': [self.version_no],
+                               'Description': [self.description],
                                'Contact': ['likit.pre@mahidol.edu']})
 
         menubar = wx.MenuBar()
@@ -133,6 +135,7 @@ class MainWindow(wx.Frame):
         dataMenu = wx.Menu()
         fieldMenu = wx.Menu()
         registryMenu = wx.Menu()
+        aboutMenu = wx.Menu()
         imp = wx.Menu()
         mlabItem = imp.Append(wx.ID_ANY, 'MLAB')
         csvItem = imp.Append(wx.ID_ANY, 'CSV')
@@ -163,15 +166,20 @@ class MainWindow(wx.Frame):
 
         drugRegMenuItem = registryMenu.Append(wx.ID_ANY, 'Drugs')
 
+        aboutMenuItem = aboutMenu.Append(wx.ID_ANY, "About the program")
+
         menubar.Append(fileMenu, '&File')
         menubar.Append(dataMenu, '&Data')
         menubar.Append(registryMenu, '&Registry')
+        menubar.Append(aboutMenu, '&About')
         self.SetMenuBar(menubar)
 
         accel_tbl = wx.AcceleratorTable([
             (wx.ACCEL_CTRL, ord('M'), mlabItem.GetId()),
         ])
         self.SetAcceleratorTable(accel_tbl)
+
+        self.Bind(wx.EVT_MENU, self.on_about_menu_click, aboutMenuItem)
 
         self.Bind(wx.EVT_MENU, self.OnQuit, exitItem)
         self.Bind(wx.EVT_MENU, self.OnLoadMLAB, mlabItem)
@@ -641,3 +649,18 @@ class MainWindow(wx.Frame):
                 dr.grid.set_table(_df)
                 dr.grid.AutoSize()
                 resp = dr.ShowModal()
+
+
+    def on_about_menu_click(self, event):
+        info = wx.adv.AboutDialogInfo()
+        info.Name = "Mivisor"
+        info.Version = self.version_no
+        info.Copyright = "(C) 2019 Faculty of Medical Technology, Mahidol University"
+        info.Description = wordwrap(self.description + "\n" +
+            "For more information, please go to http://mtfocus.io/mivisor",
+            500, wx.ClientDC(self.preview_panel))
+        info.WebSite = ("http://mtfocus.io", "MT Focus Technology")
+        info.Developers = ["Likit Preeyanon\nEmail: likit.pre@mahidol.edu"]
+        info.License = wordwrap("MIT open source license",
+            500, wx.ClientDC(self.preview_panel))
+        wx.adv.AboutBox(info)
