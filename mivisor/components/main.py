@@ -11,6 +11,26 @@ from components.fieldcreation import FieldCreateDialog, OrganismFieldFormDialog,
 APPDATA_DIR = 'appdata'
 DRUG_REGISTRY_FILE = 'drugs.json'
 
+drug_dict = {}
+drug_df = None
+
+def load_drug_registry():
+    global drug_dict
+    global drug_df
+    if os.path.exists(DRUG_REGISTRY_FILE):
+        try:
+            drug_df = pandas.read_json(os.path.join(APPDATA_DIR, DRUG_REGISTRY_FILE))
+            drug_df = drug_df.sort_values(['group'])
+        except:
+            return
+        else:
+            drug_dict = {}
+            for idx, row in drug_df.iterrows():
+                drug = row['drug']
+                abbrs = [a.strip().lower() for a in row['abbreviation'].split(',')]
+                for ab in abbrs:
+                    drug_dict[ab] = drug
+
 
 class FieldAttribute():
     def __init__(self):
@@ -39,7 +59,7 @@ class FieldAttribute():
                                  'alias': column,
                                  'organism': False,
                                  'key': False,
-                                 'drug': False,
+                                 'drug': True if column.lower() in drug_dict else False,
                                  'date': False,
                                  'type': str(data_frame[column].dtype),
                                  'keep': True,
@@ -221,7 +241,7 @@ class MainWindow(wx.Frame):
         self.key_chkbox = wx.CheckBox(self.edit_panel, -1, label="Key", name="key")
         self.drug_chkbox = wx.CheckBox(self.edit_panel, -1, label="Drug", name="drug")
         self.organism_chkbox = wx.CheckBox(self.edit_panel, -1, label="Organism", name="organism")
-        self.keep_chkbox = wx.CheckBox(self.edit_panel, -1, label="Kept", name="keep")
+        self.keep_chkbox = wx.CheckBox(self.edit_panel, -1, label="Included", name="keep")
         self.field_edit_checkboxes = [self.key_chkbox, self.drug_chkbox, self.keep_chkbox, self.organism_chkbox]
         checkbox_sizer = wx.FlexGridSizer(cols=len(self.field_edit_checkboxes), hgap=4, vgap=0)
         for chkbox in self.field_edit_checkboxes:
@@ -268,6 +288,8 @@ class MainWindow(wx.Frame):
         self.vbox.Add(self.attribute_panel, flag=wx.ALL | wx.EXPAND)
         self.vbox.Add(self.hbox, flag=wx.ALL | wx.EXPAND | wx.ALL)
         self.SetSizer(self.vbox)
+
+        load_drug_registry()
 
     def OnQuit(self, e):
         self.Close()
@@ -643,16 +665,15 @@ class MainWindow(wx.Frame):
 
 
     def on_drug_reg_menu_click(self, event):
-        if os.path.exists(DRUG_REGISTRY_FILE):
-            try:
-                _df = pandas.read_json(os.path.join(APPDATA_DIR, DRUG_REGISTRY_FILE))
-            except:
-                return
-            else:
-                dr = DrugRegFormDialog()
-                dr.grid.set_table(_df)
-                dr.grid.AutoSize()
-                resp = dr.ShowModal()
+        # TODO: drug table should be sortable by all columns
+        drug_filepath = os.path.join(APPDATA_DIR, DRUG_REGISTRY_FILE)
+        dr = DrugRegFormDialog()
+        dr.grid.set_table(drug_df)
+        dr.grid.AutoSize()
+        resp = dr.ShowModal()
+        # TODO: values not saved until the cell is unfocused
+        if resp == wx.ID_OK:
+            dr.grid.table.df.to_json(drug_filepath)
 
 
     def on_about_menu_click(self, event):
@@ -668,3 +689,4 @@ class MainWindow(wx.Frame):
         info.License = wordwrap("MIT open source license",
             500, wx.ClientDC(self.preview_panel))
         wx.adv.AboutBox(info)
+
