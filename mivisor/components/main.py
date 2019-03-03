@@ -491,7 +491,12 @@ class MainWindow(wx.Frame):
                 for value in self.data_grid.table.df[sel_col]:
                     _agg_data.append(_agg_dict[value])
                 new_col = '@'+fc.field_name.GetValue()
+                if new_col in self.field_attr.columns:
+                    new_col += '-copy'
                 self.data_grid.table.df.insert(sel_col_index + 1, new_col, value=_agg_data)
+                self.data_grid.AutoSize()
+                self.data_grid_box_sizer.Layout()
+                self.data_grid.table.InsertCols(sel_col_index + 1, 1)
                 self.field_attr.columns.insert(sel_col_index + 1, new_col)
                 self.field_attr.data[new_col] = {
                     'name': new_col,
@@ -508,7 +513,6 @@ class MainWindow(wx.Frame):
                         'data': _agg_dict
                     }
                 }
-                self.data_grid.ForceRefresh()
                 self.refresh_field_attr_list_column()
 
     def reset_summary_table(self, desc):

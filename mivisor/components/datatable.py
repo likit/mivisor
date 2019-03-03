@@ -1,6 +1,7 @@
 import wx
 import pandas
 from wx.grid import GridTableBase
+import wx.grid as gridlib
 
 
 class DataTable(GridTableBase):
@@ -36,6 +37,25 @@ class DataTable(GridTableBase):
 
     def GetColLabelValue(self, col):
         return self.df.columns[col]
+
+    def AppendRows(self, numRows=1):
+        new_index = max(self.df.index) + 1
+        try:
+            self.df.loc[new_index] = ['', '', '']
+            msg = gridlib.GridTableMessage(self,
+                                           gridlib.GRIDTABLE_NOTIFY_ROWS_APPENDED,
+                                           1)
+            self.View.ProcessTableMessage(msg)
+            return True
+        except:
+            return False
+
+    def InsertCols(self, pos=0, numCols=1):
+        msg = gridlib.GridTableMessage(self,
+                                       gridlib.GRIDTABLE_NOTIFY_COLS_INSERTED,
+                                       pos, numCols)
+        self.View.ProcessTableMessage(msg)
+        return True
 
 
 class DataGrid(wx.grid.Grid):

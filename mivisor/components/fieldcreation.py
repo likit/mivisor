@@ -172,5 +172,3 @@ class DrugRegFormDialog(wx.Dialog):
 
     def onAddButtonClick(self, event):
         self.grid.AppendRows(1)
-        self.grid.ForceRefresh()
-        print(len(self.grid.table.df))

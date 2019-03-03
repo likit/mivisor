@@ -1,6 +1,6 @@
 import wx
-from components.main import MainWindow
 
+from components.main import MainWindow
 
 def main():
     app = wx.App()
