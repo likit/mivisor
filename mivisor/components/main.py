@@ -617,7 +617,7 @@ class MainWindow(wx.Frame):
         dict_['species'] = species
 
         cs = [col['alias'] for col in info_columns]
-        cs += [organism_column['alias'], 'genuses', 'species']
+        cs += [organism_column['alias'], 'genus', 'species']
 
         exported_data = pandas.DataFrame(dict_)
         if dup_keys:
