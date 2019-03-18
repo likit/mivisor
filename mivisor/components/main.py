@@ -20,16 +20,22 @@ def load_drug_registry():
     if os.path.exists(DRUG_REGISTRY_FILE):
         try:
             drug_df = pandas.read_json(os.path.join(APPDATA_DIR, DRUG_REGISTRY_FILE))
-            drug_df = drug_df.sort_values(['group'])
         except:
-            return
+            return pandas.DataFrame(columns=['drug', 'abbreviation', 'group'])
         else:
             drug_dict = {}
-            for idx, row in drug_df.iterrows():
-                drug = row['drug']
-                abbrs = [a.strip().lower() for a in row['abbreviation'].split(',')]
-                for ab in abbrs:
-                    drug_dict[ab] = drug
+            if drug_df.empty:
+                drug_df = pandas.DataFrame(columns=['drug', 'abbreviation', 'group'])
+            else:
+                drug_df = drug_df.sort_values(['group'])
+                for idx, row in drug_df.iterrows():
+                    drug = row['drug']
+                    if row['abbreviation']:
+                        abbrs = [a.strip().lower() for a in row['abbreviation'].split(',')]
+                    else:
+                        abbrs = []
+                    for ab in abbrs:
+                        drug_dict[ab] = drug
 
 
 class FieldAttribute():
@@ -606,6 +612,15 @@ class MainWindow(wx.Frame):
         self.field_attr_list.Focus(col_index)
 
     def OnExportRawData(self, event):
+        wildcard = "Excel (*.xlsx;*.xls)|*.xlsx;*.xls"
+        with wx.FileDialog(None, "Choose a file", os.getcwd(),
+                           "", wildcard, wx.FC_SAVE) as file_dlg:
+            if file_dlg.ShowModal() == wx.ID_CANCEL:
+                return
+            else:
+                output_filepath = file_dlg.GetPath()
+                file_dlg.Destroy()
+
         info_columns = []
         drug_columns = []
         dup_keys = []
@@ -635,33 +650,35 @@ class MainWindow(wx.Frame):
             species.append(org_item.get('species', org))
 
         dict_[organism_column['alias']] = organisms
-        dict_['genuses'] = genuses
+        dict_['genus'] = genuses
         dict_['species'] = species
 
         cs = [col['alias'] for col in info_columns]
-        cs += [organism_column['alias'], 'genuses', 'species']
+        cs += [organism_column['alias'], 'genus', 'species']
 
-        exported_data = pandas.DataFrame(dict_)
+        no_drugs_data = pandas.DataFrame(dict_)
         if dup_keys:
-            exported_data = exported_data.drop_duplicates(
+            exported_data = no_drugs_data.drop_duplicates(
                 subset=dup_keys, keep='first'
             )
 
-        for i, row in enumerate(exported_data.iterrows()):
+        new_rows = []
+        for i, row in enumerate(no_drugs_data.iterrows()):
             idx, dat = row
             for dc in drug_columns:
                 dat['drug'] = dc['alias']
-                dat['result'] = self.data_grid.table.df[dc['name']][i]
+                dat['drugGroup'] = drug_dict.get(dc['name'].lower(), 'Unspecified')
+                dat['sensitivity'] = self.data_grid.table.df[dc['name']][i]
+                new_rows.append(list(dat))
 
-        wildcard = "Excel (*.xlsx;*.xls)|*.xlsx;*.xls"
-        with wx.FileDialog(None, "Choose a file", os.getcwd(),
-                           "", wildcard, wx.FC_SAVE) as file_dlg:
-            if file_dlg.ShowModal() == wx.ID_CANCEL:
-                return
-            try:
-                exported_data.to_excel(file_dlg.GetPath(), engine='xlsxwriter')
-            except IOError:
-                print('Cannot save data to file.')
+        new_columns = list(exported_data.columns) + ['drug', 'drugGroup', 'sensitivity']
+
+        flat_dataframe = pandas.DataFrame(new_rows, columns=new_columns)
+
+        try:
+            flat_dataframe.to_excel(output_filepath, engine='xlsxwriter')
+        except IOError:
+            print('Cannot save data to file.')
 
 
     def on_drug_reg_menu_click(self, event):
