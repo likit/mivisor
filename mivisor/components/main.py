@@ -11,6 +11,32 @@ from components.fieldcreation import FieldCreateDialog, OrganismFieldFormDialog,
 APPDATA_DIR = 'appdata'
 DRUG_REGISTRY_FILE = 'drugs.json'
 
+drug_dict = {}
+drug_df = None
+
+def load_drug_registry():
+    global drug_dict
+    global drug_df
+    if os.path.exists(DRUG_REGISTRY_FILE):
+        try:
+            drug_df = pandas.read_json(os.path.join(APPDATA_DIR, DRUG_REGISTRY_FILE))
+        except:
+            return pandas.DataFrame(columns=['drug', 'abbreviation', 'group'])
+        else:
+            drug_dict = {}
+            if drug_df.empty:
+                drug_df = pandas.DataFrame(columns=['drug', 'abbreviation', 'group'])
+            else:
+                drug_df = drug_df.sort_values(['group'])
+                for idx, row in drug_df.iterrows():
+                    drug = row['drug']
+                    if row['abbreviation']:
+                        abbrs = [a.strip().lower() for a in row['abbreviation'].split(',')]
+                    else:
+                        abbrs = []
+                    for ab in abbrs:
+                        drug_dict[ab] = drug
+
 
 class FieldAttribute():
     def __init__(self):
@@ -39,7 +65,7 @@ class FieldAttribute():
                                  'alias': column,
                                  'organism': False,
                                  'key': False,
-                                 'drug': False,
+                                 'drug': True if column.lower() in drug_dict else False,
                                  'date': False,
                                  'type': str(data_frame[column].dtype),
                                  'keep': True,
@@ -221,7 +247,7 @@ class MainWindow(wx.Frame):
         self.key_chkbox = wx.CheckBox(self.edit_panel, -1, label="Key", name="key")
         self.drug_chkbox = wx.CheckBox(self.edit_panel, -1, label="Drug", name="drug")
         self.organism_chkbox = wx.CheckBox(self.edit_panel, -1, label="Organism", name="organism")
-        self.keep_chkbox = wx.CheckBox(self.edit_panel, -1, label="Kept", name="keep")
+        self.keep_chkbox = wx.CheckBox(self.edit_panel, -1, label="Included", name="keep")
         self.field_edit_checkboxes = [self.key_chkbox, self.drug_chkbox, self.keep_chkbox, self.organism_chkbox]
         checkbox_sizer = wx.FlexGridSizer(cols=len(self.field_edit_checkboxes), hgap=4, vgap=0)
         for chkbox in self.field_edit_checkboxes:
@@ -268,6 +294,8 @@ class MainWindow(wx.Frame):
         self.vbox.Add(self.attribute_panel, flag=wx.ALL | wx.EXPAND)
         self.vbox.Add(self.hbox, flag=wx.ALL | wx.EXPAND | wx.ALL)
         self.SetSizer(self.vbox)
+
+        load_drug_registry()
 
     def OnQuit(self, e):
         self.Close()
@@ -584,6 +612,15 @@ class MainWindow(wx.Frame):
         self.field_attr_list.Focus(col_index)
 
     def OnExportRawData(self, event):
+        wildcard = "Excel (*.xlsx;*.xls)|*.xlsx;*.xls"
+        with wx.FileDialog(None, "Choose a file", os.getcwd(),
+                           "", wildcard, wx.FC_SAVE) as file_dlg:
+            if file_dlg.ShowModal() == wx.ID_CANCEL:
+                return
+            else:
+                output_filepath = file_dlg.GetPath()
+                file_dlg.Destroy()
+
         info_columns = []
         drug_columns = []
         dup_keys = []
@@ -613,46 +650,47 @@ class MainWindow(wx.Frame):
             species.append(org_item.get('species', org))
 
         dict_[organism_column['alias']] = organisms
-        dict_['genuses'] = genuses
+        dict_['genus'] = genuses
         dict_['species'] = species
 
         cs = [col['alias'] for col in info_columns]
         cs += [organism_column['alias'], 'genus', 'species']
 
-        exported_data = pandas.DataFrame(dict_)
+        no_drugs_data = pandas.DataFrame(dict_)
         if dup_keys:
-            exported_data = exported_data.drop_duplicates(
+            exported_data = no_drugs_data.drop_duplicates(
                 subset=dup_keys, keep='first'
             )
 
-        for i, row in enumerate(exported_data.iterrows()):
+        new_rows = []
+        for i, row in enumerate(no_drugs_data.iterrows()):
             idx, dat = row
             for dc in drug_columns:
                 dat['drug'] = dc['alias']
-                dat['result'] = self.data_grid.table.df[dc['name']][i]
+                dat['drugGroup'] = drug_dict.get(dc['name'].lower(), 'Unspecified')
+                dat['sensitivity'] = self.data_grid.table.df[dc['name']][i]
+                new_rows.append(list(dat))
 
-        wildcard = "Excel (*.xlsx;*.xls)|*.xlsx;*.xls"
-        with wx.FileDialog(None, "Choose a file", os.getcwd(),
-                           "", wildcard, wx.FC_SAVE) as file_dlg:
-            if file_dlg.ShowModal() == wx.ID_CANCEL:
-                return
-            try:
-                exported_data.to_excel(file_dlg.GetPath(), engine='xlsxwriter')
-            except IOError:
-                print('Cannot save data to file.')
+        new_columns = list(exported_data.columns) + ['drug', 'drugGroup', 'sensitivity']
+
+        flat_dataframe = pandas.DataFrame(new_rows, columns=new_columns)
+
+        try:
+            flat_dataframe.to_excel(output_filepath, engine='xlsxwriter')
+        except IOError:
+            print('Cannot save data to file.')
 
 
     def on_drug_reg_menu_click(self, event):
-        if os.path.exists(DRUG_REGISTRY_FILE):
-            try:
-                _df = pandas.read_json(os.path.join(APPDATA_DIR, DRUG_REGISTRY_FILE))
-            except:
-                return
-            else:
-                dr = DrugRegFormDialog()
-                dr.grid.set_table(_df)
-                dr.grid.AutoSize()
-                resp = dr.ShowModal()
+        # TODO: drug table should be sortable by all columns
+        drug_filepath = os.path.join(APPDATA_DIR, DRUG_REGISTRY_FILE)
+        dr = DrugRegFormDialog()
+        dr.grid.set_table(drug_df)
+        dr.grid.AutoSize()
+        resp = dr.ShowModal()
+        # TODO: values not saved until the cell is unfocused
+        if resp == wx.ID_OK:
+            dr.grid.table.df.to_json(drug_filepath)
 
 
     def on_about_menu_click(self, event):
@@ -668,3 +706,4 @@ class MainWindow(wx.Frame):
         info.License = wordwrap("MIT open source license",
             500, wx.ClientDC(self.preview_panel))
         wx.adv.AboutBox(info)
+
