@@ -17,7 +17,7 @@ drug_df = None
 def load_drug_registry():
     global drug_dict
     global drug_df
-    if os.path.exists(DRUG_REGISTRY_FILE):
+    if DRUG_REGISTRY_FILE:
         try:
             drug_df = pandas.read_json(os.path.join(APPDATA_DIR, DRUG_REGISTRY_FILE))
         except:
@@ -161,6 +161,7 @@ class MainWindow(wx.Frame):
         dataMenu = wx.Menu()
         fieldMenu = wx.Menu()
         registryMenu = wx.Menu()
+        analyzeMenu = wx.Menu()
         aboutMenu = wx.Menu()
         imp = wx.Menu()
         mlabItem = imp.Append(wx.ID_ANY, 'MLAB')
@@ -192,11 +193,15 @@ class MainWindow(wx.Frame):
 
         drugRegMenuItem = registryMenu.Append(wx.ID_ANY, 'Drugs')
 
+        self.biogramMenuItem = analyzeMenu.Append(wx.ID_ANY, 'Antibiogram')
+        self.biogramMenuItem.Enable(True)
+
         aboutMenuItem = aboutMenu.Append(wx.ID_ANY, "About the program")
 
         menubar.Append(fileMenu, '&File')
         menubar.Append(dataMenu, '&Data')
         menubar.Append(registryMenu, '&Registry')
+        menubar.Append(analyzeMenu, 'Analy&ze')
         menubar.Append(aboutMenu, '&About')
         self.SetMenuBar(menubar)
 
@@ -219,6 +224,8 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnExportRawData, self.exportRawData)
 
         self.Bind(wx.EVT_MENU, self.on_drug_reg_menu_click, drugRegMenuItem)
+
+        self.Bind(wx.EVT_MENU, self.on_antibiogram_click, self.biogramMenuItem)
 
         # init panels
         self.info_panel = wx.Panel(self, wx.ID_ANY)
@@ -409,7 +416,7 @@ class MainWindow(wx.Frame):
 
     def load_datafile(self, filetype='MLAB'):
         filepath = browse(filetype)
-        if filepath and os.path.exists(filepath):
+        if filepath and filepath:
             try:
                 worksheets = xlrd.open_workbook(filepath).sheet_names()
             except FileNotFoundError:
@@ -473,6 +480,7 @@ class MainWindow(wx.Frame):
             self.loadProfileItem.Enable(True)
             self.organismItem.Enable(True)
             self.exportRawData.Enable(True)
+            self.biogramMenuItem.Enable(True)
             # need to enable load profile menu item here
             # after refactoring the menu bar
 
@@ -619,6 +627,7 @@ class MainWindow(wx.Frame):
                 return
             else:
                 output_filepath = file_dlg.GetPath()
+                print(output_filepath)
                 file_dlg.Destroy()
 
         info_columns = []
@@ -706,4 +715,30 @@ class MainWindow(wx.Frame):
         info.License = wordwrap("MIT open source license",
             500, wx.ClientDC(self.preview_panel))
         wx.adv.AboutBox(info)
+
+
+    def on_antibiogram_click(self, event):
+
+        def on_checklistbox_item(event):
+            print(chlbox.CheckedItems)
+
+        dlg = wx.Dialog(self)
+        panel = wx.Panel(dlg)
+        vsizer = wx.BoxSizer(wx.VERTICAL)
+
+        included_fields = []
+        for col in self.field_attr.data:
+            if self.field_attr.data[col]['keep'] and (not self.field_attr.data[col]['key'] or not self.field_attr.data[col]['drug']):
+                included_fields.append(col)
+
+        chlbox = wx.CheckListBox(panel, choices=included_fields)
+        chlbox.Bind(wx.EVT_CHECKLISTBOX, on_checklistbox_item)
+        button = wx.Button(panel, label="Next")
+        label = wx.StaticText(panel, label="Select fields for calculation:")
+        vsizer.Add(label, 0, wx.ALL, 5)
+        vsizer.Add(chlbox, 1, wx.EXPAND|wx.ALL, 5)
+        vsizer.Add(button, 0, wx.ALIGN_CENTER|wx.ALL, 5)
+        panel.SetSizer(vsizer)
+        ret = dlg.ShowModal()
+        dlg.Destroy()
 
