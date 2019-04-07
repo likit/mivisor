@@ -33,7 +33,7 @@ def load_drug_registry():
             else:
                 drug_df = drug_df.sort_values(['group'])
                 for idx, row in drug_df.iterrows():
-                    drug = row['drug']
+                    drug = row
                     if row['abbreviation']:
                         abbrs = [a.strip().lower() for a in row['abbreviation'].split(',')]
                     else:
@@ -642,7 +642,6 @@ class MainWindow(wx.Frame):
                 return
             else:
                 output_filepath = file_dlg.GetPath()
-                print(output_filepath)
                 file_dlg.Destroy()
 
         info_columns = []
@@ -692,7 +691,7 @@ class MainWindow(wx.Frame):
             idx, dat = row
             for dc in drug_columns:
                 dat['drug'] = dc['alias']
-                dat['drugGroup'] = drug_dict.get(dc['name'].lower(), 'Unspecified')
+                dat['drugGroup'] = drug_dict.get(dc['name'].lower(), pandas.Series()).get('group', 'unspecified')
                 dat['sensitivity'] = self.data_grid.table.df[dc['name']][i]
                 new_rows.append(list(dat))
 
@@ -756,7 +755,7 @@ class MainWindow(wx.Frame):
             idx, dat = row
             for dc in drug_columns:
                 dat['drug'] = dc['alias']
-                dat['drugGroup'] = drug_dict.get(dc['name'].lower(), 'Unspecified')
+                dat['drugGroup'] = drug_dict.get(dc['name'].lower(), pandas.Series()).get('group', 'unspecified')
                 dat['sensitivity'] = self.data_grid.table.df[dc['name']][i]
                 new_rows.append(list(dat))
 
@@ -838,17 +837,21 @@ class MainWindow(wx.Frame):
             if dlg.ShowModal() == wx.ID_OK:
                 print(dlg.chlbox.CheckedItems)
                 indexes = [included_fields[i] for i in dlg.chlbox.CheckedItems]
+                print('before pivot tabling..')
                 biogram = df.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'],
                                          aggfunc='count', fill_value=0)['species']
+                print(biogram.head())
+                print('after pivot tabling..')
                 biogram_total = biogram['I'].add(biogram['R']).add(biogram['S'])
                 biogram_s = biogram['S']
                 biogram_ri = biogram['I'].add(biogram['R'])
                 biogram_s_pct = biogram_s/biogram_total
                 biogram_ri_pct = biogram_ri/biogram_total
-                biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: round(x, 2))\
+                biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x*100.0))\
                                       .applymap(str) + " (" + biogram_s.fillna(0).applymap(str) + ")"
-                biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: round(x, 2))\
+                biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x*100.0))\
                                       .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
+                print('after biogram calculation.')
 
                 with wx.FileDialog(None, "Open data file",
                                    wildcard='Excel files (*.xlsx)|*.xlsx',
