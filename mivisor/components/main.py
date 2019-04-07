@@ -5,6 +5,7 @@ import sqlalchemy as sa
 import xlrd
 import json
 import wx, wx.adv, wx.lib
+from datetime import datetime
 from wx.lib.wordwrap import wordwrap
 
 from components.datatable import DataGrid
@@ -154,6 +155,7 @@ class MainWindow(wx.Frame):
         self.profile_filepath = 'Unknown'
         self.db_filepath = 'Unknown'
         self.current_session_id = None
+        self.dbengine = None
         self.data_loaded = False
         self.field_attr = FieldAttribute()
         df = pandas.DataFrame({'Name': ['Mivisor'],
@@ -165,6 +167,7 @@ class MainWindow(wx.Frame):
         fileMenu = wx.Menu()
         dataMenu = wx.Menu()
         fieldMenu = wx.Menu()
+        exportMenu = wx.Menu()
         registryMenu = wx.Menu()
         analyzeMenu = wx.Menu()
         aboutMenu = wx.Menu()
@@ -187,6 +190,7 @@ class MainWindow(wx.Frame):
         createFieldItem = fieldMenu.Append(wx.ID_ANY, 'Matching')
 
         dataMenu.Append(wx.ID_ANY, 'New field', fieldMenu)
+        self.saveToDatabaseMenuItem = dataMenu.Append(wx.ID_ANY, 'Save to database')
         dataMenu.AppendSeparator()
 
         self.organismItem = dataMenu.Append(wx.ID_ANY, 'Organism')
@@ -194,9 +198,13 @@ class MainWindow(wx.Frame):
 
         dataMenu.AppendSeparator()
 
-        self.exportRawData = dataMenu.Append(wx.ID_ANY, 'Export as Excel format')
-        self.saveRawDataMenuItem = dataMenu.Append(wx.ID_ANY, 'Save to database')
-        self.exportRawData.Enable(False)
+        self.exportToExcelMenuItem = exportMenu.Append(wx.ID_ANY, 'To Excel')
+        self.saveToSQLiteMenuItem = exportMenu.Append(wx.ID_ANY, 'Save to SQLite')
+        self.appendToSQLiteMenuItem = exportMenu.Append(wx.ID_ANY, 'Append to SQLite')
+        self.exportToExcelMenuItem.Enable(False)
+        self.saveToSQLiteMenuItem.Enable(False)
+        self.appendToSQLiteMenuItem.Enable(False)
+        dataMenu.Append(wx.ID_ANY, 'Export flat table', exportMenu)
 
         drugRegMenuItem = registryMenu.Append(wx.ID_ANY, 'Drugs')
 
@@ -212,6 +220,7 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onCreateDbMenuItemClick, self.createDbMenuItem)
         self.Bind(wx.EVT_MENU, self.onConnectDbMenuItemClick, self.connectDbMenuItem)
         self.Bind(wx.EVT_MENU, self.onDisconnectDbMenuItemClick, self.disconnectDbMenuItem)
+        self.Bind(wx.EVT_MENU, self.onSaveToDatabaseMenuItemClick, self.saveToDatabaseMenuItem)
 
         menubar.Append(fileMenu, '&File')
         menubar.Append(dataMenu, '&Data')
@@ -237,8 +246,9 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnLoadProfile, self.loadProfileItem)
         self.Bind(wx.EVT_MENU, self.OnOrganismClick, self.organismItem)
 
-        self.Bind(wx.EVT_MENU, self.OnExportRawData, self.exportRawData)
-        self.Bind(wx.EVT_MENU, self.onSaveRawDataMenuItemClick, self.saveRawDataMenuItem)
+        self.Bind(wx.EVT_MENU, self.OnExportRawData, self.exportToExcelMenuItem)
+        self.Bind(wx.EVT_MENU, lambda x: self.onExportToSQLiteMenuItemClick(x, action='replace'), self.saveToSQLiteMenuItem)
+        self.Bind(wx.EVT_MENU, lambda x: self.onExportToSQLiteMenuItemClick(x, action='append'), self.appendToSQLiteMenuItem)
 
         self.Bind(wx.EVT_MENU, self.on_drug_reg_menu_click, drugRegMenuItem)
 
@@ -370,6 +380,40 @@ class MainWindow(wx.Frame):
             resp = fc.ShowModal()
             self.field_attr.update_organisms(fc.grid.table.df)
 
+    def load_profile_from_filepath(self):
+        try:
+            fp = open(self.profile_filepath, 'r')
+        except IOError:
+            wx.MessageDialog(self,
+                             'Cannot read data from {}. Please double check the file path.'.format(filepath),
+                             'The profile file cannot be loaded',
+                             wx.ICON_ERROR).ShowModal()
+            return
+
+        json_data = fp.read()
+        fp.close()
+        if not self.field_attr.update_from_json(json_data):
+            wx.MessageDialog(self,
+                             'Fields in the profile and the data do not match.',
+                             'The profile cannot be loaded',
+                             wx.ICON_INFORMATION).ShowModal()
+            return
+
+        for c in self.field_attr.columns:
+            if self.field_attr.is_col_aggregate(c):
+                column = self.field_attr.get_column(c)
+                column_index = self.field_attr.get_col_index(c)
+                if c not in self.data_grid.table.df.columns:
+                    d = []
+                    from_col = column['aggregate']['from']
+                    dict_ = column['aggregate']['data']
+                    for value in self.data_grid.table.df[from_col]:
+                        d.append(dict_.get(value, value))
+                    self.data_grid.table.df.insert(column_index, c, value=d)
+        self.data_grid.ForceRefresh()
+        self.refresh_field_attr_list_column()
+        self.update_edit_panel()
+
     def OnLoadProfile(self, event):
         if not self.data_filepath:
             dlg = wx.MessageDialog(None,
@@ -497,7 +541,9 @@ class MainWindow(wx.Frame):
             self.saveProfileItem.Enable(True)
             self.loadProfileItem.Enable(True)
             self.organismItem.Enable(True)
-            self.exportRawData.Enable(True)
+            self.exportToExcelMenuItem.Enable(True)
+            self.saveToSQLiteMenuItem.Enable(True)
+            self.appendToSQLiteMenuItem.Enable(True)
             self.biogramMenuItem.Enable(True)
             # need to enable load profile menu item here
             # after refactoring the menu bar
@@ -704,9 +750,26 @@ class MainWindow(wx.Frame):
         except IOError:
             print('Cannot save data to file.')
 
-    def onSaveRawDataMenuItemClick(self, event):
-        if not self.dbengine:
-            self.onConnectDbMenuItemClick()
+    def onExportToSQLiteMenuItemClick(self, event, action='replace'):
+
+        if action == 'replace':
+            style = wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT
+        else:
+            style = wx.FD_SAVE
+
+        if not self.data_loaded:
+            return
+
+        with wx.FileDialog(None, "Choose an SQLite data file",
+                           wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
+                           style=style) \
+                as fileDialog:
+            if fileDialog.ShowModal() == wx.ID_CANCEL:
+                return
+            else:
+                dw_filepath = fileDialog.GetPath()
+        if dw_filepath:
+            dwengine = sa.create_engine('sqlite:///{}'.format(dw_filepath))
 
         info_columns = []
         drug_columns = []
@@ -764,10 +827,44 @@ class MainWindow(wx.Frame):
         flat_dataframe = pandas.DataFrame(new_rows, columns=new_columns)
 
         try:
-            flat_dataframe.to_sql('facts', con=self.dbengine, if_exists='replace',
+            flat_dataframe.to_sql('facts', con=dwengine, if_exists=action,
                                   index=False)
         except IOError:
             print('Cannot save data to the database.')
+
+    def onSaveToDatabaseMenuItemClick(self, event):
+        if not self.dbengine:
+            with wx.FileDialog(None, "Open data file",
+                               wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
+                               style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) \
+                    as fileDialog:
+                if fileDialog.ShowModal() == wx.ID_CANCEL:
+                    return
+                else:
+                    self.db_filepath = fileDialog.GetPath()
+
+        if self.db_filepath != 'Unknown':
+            try:
+                metadata = pandas.DataFrame({'profile': self.profile_filepath, 'updatedAt': datetime.utcnow()})
+            except ValueError:
+                metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
+            else:
+                metadata.append([{'profile': self.profile_filepath, 'updatedAt': datetime.utcnow()}], ignore_index=True)
+
+            self.dbfile_lbl.SetLabelText('Database filepath: {}'.format(self.db_filepath))
+            self.dbengine = sa.create_engine('sqlite:///{}'.format(self.db_filepath))
+            try:
+                self.data_grid.table.df.to_sql('data', con=self.dbengine, index=False, if_exists='replace')
+                metadata.to_sql('metadata', con=self.dbengine, if_exists='replace', index=False)
+            except:
+                with wx.MessageDialog(None, message='Failed to save data to the database.',
+                                      caption='Data saving failed.',
+                                      style=wx.OK | wx.CENTER) as msgDialog:
+                    msgDialog.ShowModal()
+            else:
+                with wx.MessageDialog(None, message='Data have been saved to the database file.', caption='Finished.',
+                                      style=wx.OK | wx.CENTER) as msgDialog:
+                    msgDialog.ShowModal()
 
     def on_drug_reg_menu_click(self, event):
         # TODO: drug table should be sortable by all columns
@@ -803,6 +900,7 @@ class MainWindow(wx.Frame):
                 return
             else:
                 self.db_filepath = fileDialog.GetPath()
+                self.dbfile_lbl.SetLabelText('Database filepath: {}'.format(self.db_filepath))
         if self.db_filepath:
             self.dbengine = sa.create_engine('sqlite:///{}'.format(self.db_filepath))
             self.dbfile_lbl.SetLabelText(self.db_filepath)
@@ -817,15 +915,55 @@ class MainWindow(wx.Frame):
             else:
                 db_filepath = fileDialog.GetPath()
         if db_filepath:
+            self.db_filepath = db_filepath
+            self.dbfile_lbl.SetLabelText('Database filepath: {}'.format(db_filepath))
             self.dbengine = sa.create_engine('sqlite:///{}'.format(db_filepath))
+            df = pandas.read_sql_table('data', con=self.dbengine)
+            self.datafile_lbl.SetLabelText("Data filepath: {}".format(self.data_filepath))
+            self.data_loaded = True
+            self.data_grid_box_sizer.Remove(0)
+            self.data_grid.Destroy()
+            self.data_grid = DataGrid(self.preview_panel)
+            self.data_grid.set_table(df)
+            self.data_grid.AutoSizeColumns()
+            self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND | wx.ALL)
+            self.data_grid_box_sizer.Layout()  # repaint the sizer
+            self.field_attr.update_from_dataframe(df)
+            self.field_attr_list.ClearAll()
+            self.refresh_field_attr_list_column()
+            if self.field_attr.columns:
+                self.current_column = self.field_attr.iget_column(0)
+                self.field_attr_list.Select(0)
+            self.saveProfileItem.Enable(True)
+            self.loadProfileItem.Enable(True)
+            self.organismItem.Enable(True)
+            self.exportToExcelMenuItem.Enable(True)
+            self.saveToSQLiteMenuItem.Enable(True)
+            self.appendToSQLiteMenuItem.Enable(True)
+
+            metadata = pandas.read_sql_table('metadata', con=self.dbengine)
+            self.profile_filepath = metadata.tail(1)['profile'].to_list()[0]
+            self.load_profile_from_filepath()
+            self.profile_lbl.SetLabelText("Profile filepath: {}".format(self.profile_filepath))
 
     def onDisconnectDbMenuItemClick(self, event):
         pass
 
     def on_antibiogram_click(self, event):
+        dwengine = None
+        with wx.FileDialog(None, "Choose a flat SQLite data file",
+                           wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
+                           style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) \
+                as fileDialog:
+            if fileDialog.ShowModal() == wx.ID_CANCEL:
+                return
+            else:
+                dw_filepath = fileDialog.GetPath()
+        if dw_filepath:
+            dwengine = sa.create_engine('sqlite:///{}'.format(dw_filepath))
 
-        if self.dbengine:
-            df = pandas.read_sql_table('facts', con=self.dbengine)
+        if dwengine:
+            df = pandas.read_sql_table('facts', con=dwengine)
 
             included_fields = list(df.columns)
             included_fields.remove('sensitivity')
@@ -835,24 +973,18 @@ class MainWindow(wx.Frame):
             dlg = IndexFieldList(choices=included_fields)
 
             if dlg.ShowModal() == wx.ID_OK:
-                print(dlg.chlbox.CheckedItems)
                 indexes = [included_fields[i] for i in dlg.chlbox.CheckedItems]
-                print('before pivot tabling..')
                 biogram = df.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'],
                                          aggfunc='count', fill_value=0)['species']
-                print(biogram.head())
-                print('after pivot tabling..')
                 biogram_total = biogram['I'].add(biogram['R']).add(biogram['S'])
                 biogram_s = biogram['S']
                 biogram_ri = biogram['I'].add(biogram['R'])
-                biogram_s_pct = biogram_s/biogram_total
-                biogram_ri_pct = biogram_ri/biogram_total
-                biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x*100.0))\
+                biogram_s_pct = biogram_s / biogram_total
+                biogram_ri_pct = biogram_ri / biogram_total
+                biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
                                       .applymap(str) + " (" + biogram_s.fillna(0).applymap(str) + ")"
-                biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x*100.0))\
+                biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
                                       .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
-                print('after biogram calculation.')
-
                 with wx.FileDialog(None, "Open data file",
                                    wildcard='Excel files (*.xlsx)|*.xlsx',
                                    style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) \
