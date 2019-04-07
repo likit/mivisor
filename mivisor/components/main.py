@@ -1,18 +1,22 @@
 import os
 import pandas
+import sqlite3
+import sqlalchemy as sa
 import xlrd
 import json
 import wx, wx.adv, wx.lib
 from wx.lib.wordwrap import wordwrap
 
 from components.datatable import DataGrid
-from components.fieldcreation import FieldCreateDialog, OrganismFieldFormDialog, DrugRegFormDialog
+from components.fieldcreation import (FieldCreateDialog, OrganismFieldFormDialog, DrugRegFormDialog,
+                                      IndexFieldList)
 
 APPDATA_DIR = 'appdata'
 DRUG_REGISTRY_FILE = 'drugs.json'
 
 drug_dict = {}
 drug_df = None
+
 
 def load_drug_registry():
     global drug_dict
@@ -142,12 +146,13 @@ class MainWindow(wx.Frame):
         self.version_no = '0.12 Beta'
         self.description = 'A user-friendly program for microbiological laboratory data management.'
         self.SetTitle('Mivisor Version {}'.format(self.version_no))
-        self.SetSize((int(scr_width*0.8), int(scr_height*0.8)))
+        self.SetSize((int(scr_width * 0.8), int(scr_height * 0.8)))
         self.Center()
 
         self.current_column = None
         self.data_filepath = 'Unknown'
         self.profile_filepath = 'Unknown'
+        self.db_filepath = 'Unknown'
         self.current_session_id = None
         self.data_loaded = False
         self.field_attr = FieldAttribute()
@@ -163,6 +168,7 @@ class MainWindow(wx.Frame):
         registryMenu = wx.Menu()
         analyzeMenu = wx.Menu()
         aboutMenu = wx.Menu()
+        databaseMenu = wx.Menu()
         imp = wx.Menu()
         mlabItem = imp.Append(wx.ID_ANY, 'MLAB')
         csvItem = imp.Append(wx.ID_ANY, 'CSV')
@@ -188,7 +194,8 @@ class MainWindow(wx.Frame):
 
         dataMenu.AppendSeparator()
 
-        self.exportRawData = dataMenu.Append(wx.ID_ANY, 'Export raw data')
+        self.exportRawData = dataMenu.Append(wx.ID_ANY, 'Export as Excel format')
+        self.saveRawDataMenuItem = dataMenu.Append(wx.ID_ANY, 'Save to database')
         self.exportRawData.Enable(False)
 
         drugRegMenuItem = registryMenu.Append(wx.ID_ANY, 'Drugs')
@@ -198,10 +205,19 @@ class MainWindow(wx.Frame):
 
         aboutMenuItem = aboutMenu.Append(wx.ID_ANY, "About the program")
 
+        self.createDbMenuItem = databaseMenu.Append(wx.ID_ANY, 'Create')
+        self.connectDbMenuItem = databaseMenu.Append(wx.ID_ANY, 'Connect')
+        self.disconnectDbMenuItem = databaseMenu.Append(wx.ID_ANY, 'Disconnect')
+
+        self.Bind(wx.EVT_MENU, self.onCreateDbMenuItemClick, self.createDbMenuItem)
+        self.Bind(wx.EVT_MENU, self.onConnectDbMenuItemClick, self.connectDbMenuItem)
+        self.Bind(wx.EVT_MENU, self.onDisconnectDbMenuItemClick, self.disconnectDbMenuItem)
+
         menubar.Append(fileMenu, '&File')
         menubar.Append(dataMenu, '&Data')
-        menubar.Append(registryMenu, '&Registry')
+        menubar.Append(databaseMenu, 'Database')
         menubar.Append(analyzeMenu, 'Analy&ze')
+        menubar.Append(registryMenu, '&Registry')
         menubar.Append(aboutMenu, '&About')
         self.SetMenuBar(menubar)
 
@@ -222,6 +238,7 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnOrganismClick, self.organismItem)
 
         self.Bind(wx.EVT_MENU, self.OnExportRawData, self.exportRawData)
+        self.Bind(wx.EVT_MENU, self.onSaveRawDataMenuItemClick, self.saveRawDataMenuItem)
 
         self.Bind(wx.EVT_MENU, self.on_drug_reg_menu_click, drugRegMenuItem)
 
@@ -243,8 +260,10 @@ class MainWindow(wx.Frame):
 
         self.profile_lbl = wx.StaticText(self.info_panel, -1, "Profile filepath: {}".format(self.profile_filepath))
         self.datafile_lbl = wx.StaticText(self.info_panel, -1, "Data filepath: {}".format(self.data_filepath))
+        self.dbfile_lbl = wx.StaticText(self.info_panel, -1, "Database filepath: {}".format(self.db_filepath))
         self.info_sizer.Add(self.datafile_lbl)
         self.info_sizer.Add(self.profile_lbl)
+        self.info_sizer.Add(self.dbfile_lbl)
 
         self.data_grid = DataGrid(self.preview_panel)
         self.data_grid.set_table(df)
@@ -351,13 +370,12 @@ class MainWindow(wx.Frame):
             resp = fc.ShowModal()
             self.field_attr.update_organisms(fc.grid.table.df)
 
-
     def OnLoadProfile(self, event):
         if not self.data_filepath:
             dlg = wx.MessageDialog(None,
-                                "No data for this session.",
-                                "Please provide data for this session first.",
-                                wx.OK | wx.CENTER)
+                                   "No data for this session.",
+                                   "Please provide data for this session first.",
+                                   wx.OK | wx.CENTER)
             ret = dlg.ShowModal()
             return
 
@@ -526,7 +544,7 @@ class MainWindow(wx.Frame):
                 _agg_data = []
                 for value in self.data_grid.table.df[sel_col]:
                     _agg_data.append(_agg_dict[value])
-                new_col = '@'+fc.field_name.GetValue()
+                new_col = '@' + fc.field_name.GetValue()
                 if new_col in self.field_attr.columns:
                     new_col += '-copy'
                 self.data_grid.table.df.insert(sel_col_index + 1, new_col, value=_agg_data)
@@ -575,11 +593,9 @@ class MainWindow(wx.Frame):
         self.update_edit_panel()
         self.data_grid.SelectCol(index)
 
-
     def refresh_field_attr_list_column(self):
         self.add_field_attr_list_column()
         self.update_field_attrs()
-
 
     def add_field_attr_list_column(self):
         self.field_attr_list.ClearAll()
@@ -593,7 +609,6 @@ class MainWindow(wx.Frame):
         self.field_attr_list.InsertColumn(7, 'Description')
         self.field_attr_list.InsertColumn(8, 'Kept')
         self.field_attr_list.SetColumnWidth(7, 300)
-
 
     def update_field_attrs(self):
         for n, c in enumerate(self.field_attr.columns):
@@ -661,6 +676,7 @@ class MainWindow(wx.Frame):
         dict_[organism_column['alias']] = organisms
         dict_['genus'] = genuses
         dict_['species'] = species
+        dict_['organism_name'] = [' '.join(item) for item in zip(genuses, species)]
 
         cs = [col['alias'] for col in info_columns]
         cs += [organism_column['alias'], 'genus', 'species']
@@ -689,6 +705,70 @@ class MainWindow(wx.Frame):
         except IOError:
             print('Cannot save data to file.')
 
+    def onSaveRawDataMenuItemClick(self, event):
+        if not self.dbengine:
+            self.onConnectDbMenuItemClick()
+
+        info_columns = []
+        drug_columns = []
+        dup_keys = []
+        organism_column = None
+        for colname in self.field_attr.columns:
+            column = self.field_attr.get_column(colname)
+            if column['keep']:
+                if column['key'] and not column['organism'] and not column['drug']:
+                    dup_keys.append(column['alias'])
+                if column['organism']:
+                    organism_column = column
+                elif column['drug']:
+                    drug_columns.append(column)
+                else:
+                    info_columns.append(column)
+        dict_ = {}
+        for column in info_columns:
+            dict_[column['alias']] = self.data_grid.table.df[column['name']]
+
+        genuses = []
+        species = []
+        organisms = []
+        for org in self.data_grid.table.df[organism_column['name']]:
+            organisms.append(org)
+            org_item = self.field_attr.organisms.get(org, {'genus': org, 'species': org})
+            genuses.append(org_item.get('genus', org))
+            species.append(org_item.get('species', org))
+
+        dict_[organism_column['alias']] = organisms
+        dict_['genus'] = genuses
+        dict_['species'] = species
+        dict_['organism_name'] = [' '.join(item) for item in zip(genuses, species)]
+
+        cs = [col['alias'] for col in info_columns]
+        cs += [organism_column['alias'], 'genus', 'species']
+
+        no_drugs_data = pandas.DataFrame(dict_)
+        if dup_keys:
+            exported_data = no_drugs_data.drop_duplicates(
+                subset=dup_keys, keep='first'
+            )
+
+        new_rows = []
+        for i, row in enumerate(no_drugs_data.iterrows()):
+            idx, dat = row
+            for dc in drug_columns:
+                dat['drug'] = dc['alias']
+                dat['drugGroup'] = drug_dict.get(dc['name'].lower(), 'Unspecified')
+                dat['sensitivity'] = self.data_grid.table.df[dc['name']][i]
+                new_rows.append(list(dat))
+
+        new_columns = list(exported_data.columns) + ['drug', 'drugGroup', 'sensitivity']
+
+        flat_dataframe = pandas.DataFrame(new_rows, columns=new_columns)
+
+        try:
+            flat_dataframe.to_sql('facts', con=self.dbengine, if_exists='replace',
+                                  index=False)
+        except IOError:
+            print('Cannot save data to the database.')
 
     def on_drug_reg_menu_click(self, event):
         # TODO: drug table should be sortable by all columns
@@ -701,44 +781,90 @@ class MainWindow(wx.Frame):
         if resp == wx.ID_OK:
             dr.grid.table.df.to_json(drug_filepath)
 
-
     def on_about_menu_click(self, event):
         info = wx.adv.AboutDialogInfo()
         info.Name = "Mivisor"
         info.Version = self.version_no
         info.Copyright = "(C) 2019 Faculty of Medical Technology, Mahidol University"
         info.Description = wordwrap(self.description + "\n" +
-            "For more information, please go to http://mtfocus.io/mivisor",
-            500, wx.ClientDC(self.preview_panel))
+                                    "For more information, please go to http://mtfocus.io/mivisor",
+                                    500, wx.ClientDC(self.preview_panel))
         info.WebSite = ("http://mtfocus.io", "MT Focus Technology")
         info.Developers = ["Likit Preeyanon\nEmail: likit.pre@mahidol.edu"]
         info.License = wordwrap("MIT open source license",
-            500, wx.ClientDC(self.preview_panel))
+                                500, wx.ClientDC(self.preview_panel))
         wx.adv.AboutBox(info)
 
+    def onCreateDbMenuItemClick(self, event):
+        with wx.FileDialog(None, "Open data file",
+                           wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
+                           style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) \
+                as fileDialog:
+            if fileDialog.ShowModal() == wx.ID_CANCEL:
+                return
+            else:
+                self.db_filepath = fileDialog.GetPath()
+        if self.db_filepath:
+            self.dbengine = sa.create_engine('sqlite:///{}'.format(self.db_filepath))
+            self.dbfile_lbl.SetLabelText(self.db_filepath)
+
+    def onConnectDbMenuItemClick(self, event):
+        with wx.FileDialog(None, "Open data file",
+                           wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
+                           style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) \
+                as fileDialog:
+            if fileDialog.ShowModal() == wx.ID_CANCEL:
+                return
+            else:
+                db_filepath = fileDialog.GetPath()
+        if db_filepath:
+            self.dbengine = sa.create_engine('sqlite:///{}'.format(db_filepath))
+
+    def onDisconnectDbMenuItemClick(self, event):
+        pass
 
     def on_antibiogram_click(self, event):
 
-        def on_checklistbox_item(event):
-            print(chlbox.CheckedItems)
+        if self.dbengine:
+            df = pandas.read_sql_table('facts', con=self.dbengine)
 
-        dlg = wx.Dialog(self)
-        panel = wx.Panel(dlg)
-        vsizer = wx.BoxSizer(wx.VERTICAL)
+            included_fields = list(df.columns)
+            included_fields.remove('sensitivity')
+            included_fields.remove('drug')
+            included_fields.remove('drugGroup')
 
-        included_fields = []
-        for col in self.field_attr.data:
-            if self.field_attr.data[col]['keep'] and (not self.field_attr.data[col]['key'] or not self.field_attr.data[col]['drug']):
-                included_fields.append(col)
+            dlg = IndexFieldList(choices=included_fields)
 
-        chlbox = wx.CheckListBox(panel, choices=included_fields)
-        chlbox.Bind(wx.EVT_CHECKLISTBOX, on_checklistbox_item)
-        button = wx.Button(panel, label="Next")
-        label = wx.StaticText(panel, label="Select fields for calculation:")
-        vsizer.Add(label, 0, wx.ALL, 5)
-        vsizer.Add(chlbox, 1, wx.EXPAND|wx.ALL, 5)
-        vsizer.Add(button, 0, wx.ALIGN_CENTER|wx.ALL, 5)
-        panel.SetSizer(vsizer)
-        ret = dlg.ShowModal()
-        dlg.Destroy()
+            if dlg.ShowModal() == wx.ID_OK:
+                print(dlg.chlbox.CheckedItems)
+                indexes = [included_fields[i] for i in dlg.chlbox.CheckedItems]
+                biogram = df.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'],
+                                         aggfunc='count', fill_value=0)['species']
+                biogram_total = biogram['I'].add(biogram['R']).add(biogram['S'])
+                biogram_s = biogram['S']
+                biogram_ri = biogram['I'].add(biogram['R'])
+                biogram_s_pct = biogram_s/biogram_total
+                biogram_ri_pct = biogram_ri/biogram_total
+                biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: round(x, 2))\
+                                      .applymap(str) + " (" + biogram_s.fillna(0).applymap(str) + ")"
+                biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: round(x, 2))\
+                                      .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
 
+                with wx.FileDialog(None, "Open data file",
+                                   wildcard='Excel files (*.xlsx)|*.xlsx',
+                                   style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) \
+                        as fileDialog:
+                    if fileDialog.ShowModal() != wx.ID_CANCEL:
+                        excel_filepath = fileDialog.GetPath()
+                        writer = pandas.ExcelWriter(excel_filepath)
+                        biogram_s.fillna(0).to_excel(writer, 'count_s')
+                        biogram_s_pct.fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_s')
+                        biogram_ri.fillna(0).to_excel(writer, 'count_ir')
+                        biogram_ri_pct.fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_ir')
+                        biogram_narst_s.to_excel(writer, 'narst_s')
+                        biogram_narst_r.to_excel(writer, 'narst_ir')
+                        writer.save()
+
+                        with wx.MessageDialog(None, message='Antibiogram is generated.', caption='Finished',
+                                              style=wx.OK | wx.CENTER) as msgDialog:
+                            msgDialog.ShowModal()

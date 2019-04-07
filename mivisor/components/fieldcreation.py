@@ -94,7 +94,7 @@ class OrganismFieldFormDialog(wx.Dialog):
             if ret == wx.ID_CANCEL:
                 return
             else:
-                if os.path.exists(file_dlg.GetPath()):
+                if file_dlg.GetPath():
                     df = pandas.read_excel(file_dlg.GetPath(), usecols=2)
                     self.grid_sizer.Remove(0)
                     self.grid.Destroy()
@@ -160,7 +160,7 @@ class DrugRegFormDialog(wx.Dialog):
             if ret == wx.ID_CANCEL:
                 return
             else:
-                if os.path.exists(file_dlg.GetPath()):
+                if file_dlg.GetPath():
                     df = pandas.read_excel(file_dlg.GetPath(), usecols=3)
                     self.grid_sizer.Remove(0)
                     self.grid.Destroy()
@@ -172,3 +172,26 @@ class DrugRegFormDialog(wx.Dialog):
 
     def onAddButtonClick(self, event):
         self.grid.AppendRows(1)
+
+
+class IndexFieldList(wx.Dialog):
+    def __init__(self, choices):
+        super(IndexFieldList, self).__init__(None, -1, "Antibiogram Indexes")
+        panel = wx.Panel(self)
+        vsizer = wx.BoxSizer(wx.VERTICAL)
+        self.chlbox = wx.CheckListBox(panel, choices=choices)
+
+        label = wx.StaticText(panel, label="Select indexes:")
+
+        vsizer.Add(label, 0, wx.ALL, 5)
+        vsizer.Add(self.chlbox, 1, wx.EXPAND | wx.ALL, 5)
+
+        button = wx.Button(panel, wx.ID_OK, label="Next")
+        button.Bind(wx.EVT_BUTTON, self.onNextButtonClick)
+
+        vsizer.Add(button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+        panel.SetSizer(vsizer)
+
+    def onNextButtonClick(self, event):
+        self.EndModal(wx.ID_OK)
+        self.Destroy()
