@@ -1,8 +1,9 @@
 import wx
 import os
+import datetime
 import pandas
 from components.datatable import DataGrid
-
+from wx.adv import DatePickerCtrl
 
 class FieldCreateDialog(wx.Dialog):
     def __init__(self):
@@ -176,22 +177,76 @@ class DrugRegFormDialog(wx.Dialog):
 
 class IndexFieldList(wx.Dialog):
     def __init__(self, choices):
-        super(IndexFieldList, self).__init__(None, -1, "Antibiogram Indexes")
+        super(IndexFieldList, self).__init__(None, -1, "Antibiogram Indexes", size=(500,500))
         panel = wx.Panel(self)
         vsizer = wx.BoxSizer(wx.VERTICAL)
         self.chlbox = wx.CheckListBox(panel, choices=choices)
+        self.chlbox.Bind(wx.EVT_CHECKLISTBOX, self.onChecklistboxChecked)
+        self.startDatePicker = DatePickerCtrl(panel, id=wx.ID_ANY, dt=datetime.datetime.now())
+        self.endDatePicker = DatePickerCtrl(panel, id=wx.ID_ANY, dt=datetime.datetime.now())
+        self.startDatePicker.Enable(False)
+        self.endDatePicker.Enable(False)
+        self.all = wx.CheckBox(panel, id=wx.ID_ANY, label="Select all dates")
+        self.all.SetValue(True)
+
+        self.indexes = []
+        self.choices = choices
+
+        self.all.Bind(wx.EVT_CHECKBOX, self.onCheckboxChecked)
+
+        self.index_items_list = wx.ListCtrl(panel, wx.ID_ANY, style=wx.LC_LIST)
 
         label = wx.StaticText(panel, label="Select indexes:")
 
         vsizer.Add(label, 0, wx.ALL, 5)
         vsizer.Add(self.chlbox, 1, wx.EXPAND | wx.ALL, 5)
 
-        button = wx.Button(panel, wx.ID_OK, label="Next")
-        button.Bind(wx.EVT_BUTTON, self.onNextButtonClick)
+        nextButton = wx.Button(panel, wx.ID_OK, label="Next")
+        cancelButton = wx.Button(panel, wx.ID_CANCEL, label="Cancel")
+        nextButton.Bind(wx.EVT_BUTTON, self.onNextButtonClick)
+        cancelButton.Bind(wx.EVT_BUTTON, self.onCancelButtonClick)
 
-        vsizer.Add(button, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+        staticBoxSizer = wx.StaticBoxSizer(wx.VERTICAL, panel, "Select a date range:")
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        hbox.Add(cancelButton, 0, wx.EXPAND | wx.ALL, 2)
+        hbox.Add(nextButton, 0, wx.EXPAND | wx.ALL, 2)
+
+        gridbox = wx.GridSizer(2,2,2,2)
+
+        staticBoxSizer.Add(self.all, 0, wx.EXPAND | wx.ALL, 5)
+        staticBoxSizer.Add(gridbox, 0, wx.EXPAND | wx.ALL, 5)
+
+        startDateLabel = wx.StaticText(panel, label="Select start date")
+        endDateLabel = wx.StaticText(panel, label="Select end date")
+        gridbox.AddMany([startDateLabel, self.startDatePicker])
+        gridbox.AddMany([endDateLabel, self.endDatePicker])
+        vsizer.Add(self.index_items_list, 1, wx.EXPAND | wx.ALL, 5)
+        vsizer.Add(staticBoxSizer, 0, wx.EXPAND | wx.ALIGN_CENTER | wx.ALL, 5)
+        vsizer.Add(hbox, 0, wx.ALIGN_CENTER | wx.ALL, 5)
         panel.SetSizer(vsizer)
 
     def onNextButtonClick(self, event):
         self.EndModal(wx.ID_OK)
         self.Destroy()
+
+    def onCancelButtonClick(self, event):
+        self.EndModal(wx.ID_CANCEL)
+        self.Destroy()
+
+    def onCheckboxChecked(self, event):
+        if event.IsChecked():
+            self.startDatePicker.Enable(False)
+            self.endDatePicker.Enable(False)
+        else:
+            self.startDatePicker.Enable(True)
+            self.endDatePicker.Enable(True)
+
+    def onChecklistboxChecked(self, event):
+        item = event.GetInt()
+        self.indexes.append(item)
+        if self.chlbox.IsChecked(item):
+            self.index_items_list.Append([self.choices[item]])
+        else:
+            idx = self.indexes.index(item)
+            self.index_items_list.DeleteItem(idx)
+            self.indexes.remove(item)
