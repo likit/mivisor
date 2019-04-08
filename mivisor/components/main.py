@@ -1,11 +1,10 @@
 import os
 import pandas
-import sqlite3
 import sqlalchemy as sa
 import xlrd
 import json
 import wx, wx.adv, wx.lib
-from datetime import datetime
+from datetime import datetime, date
 from wx.lib.wordwrap import wordwrap
 
 from components.datatable import DataGrid
@@ -151,9 +150,9 @@ class MainWindow(wx.Frame):
         self.Center()
 
         self.current_column = None
-        self.data_filepath = 'Unknown'
-        self.profile_filepath = 'Unknown'
-        self.db_filepath = 'Unknown'
+        self.data_filepath = None
+        self.profile_filepath = None
+        self.db_filepath = None
         self.current_session_id = None
         self.dbengine = None
         self.data_loaded = False
@@ -247,8 +246,10 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnOrganismClick, self.organismItem)
 
         self.Bind(wx.EVT_MENU, self.OnExportRawData, self.exportToExcelMenuItem)
-        self.Bind(wx.EVT_MENU, lambda x: self.onExportToSQLiteMenuItemClick(x, action='replace'), self.saveToSQLiteMenuItem)
-        self.Bind(wx.EVT_MENU, lambda x: self.onExportToSQLiteMenuItemClick(x, action='append'), self.appendToSQLiteMenuItem)
+        self.Bind(wx.EVT_MENU, lambda x: self.onExportToSQLiteMenuItemClick(x, action='replace'),
+                  self.saveToSQLiteMenuItem)
+        self.Bind(wx.EVT_MENU, lambda x: self.onExportToSQLiteMenuItemClick(x, action='append'),
+                  self.appendToSQLiteMenuItem)
 
         self.Bind(wx.EVT_MENU, self.on_drug_reg_menu_click, drugRegMenuItem)
 
@@ -284,7 +285,10 @@ class MainWindow(wx.Frame):
         self.drug_chkbox = wx.CheckBox(self.edit_panel, -1, label="Drug", name="drug")
         self.organism_chkbox = wx.CheckBox(self.edit_panel, -1, label="Organism", name="organism")
         self.keep_chkbox = wx.CheckBox(self.edit_panel, -1, label="Included", name="keep")
-        self.field_edit_checkboxes = [self.key_chkbox, self.drug_chkbox, self.keep_chkbox, self.organism_chkbox]
+        self.date_chkbox = wx.CheckBox(self.edit_panel, -1, label="Date", name="date")
+        self.field_edit_checkboxes = [self.key_chkbox, self.drug_chkbox,
+                                      self.keep_chkbox, self.organism_chkbox,
+                                      self.date_chkbox]
         checkbox_sizer = wx.FlexGridSizer(cols=len(self.field_edit_checkboxes), hgap=4, vgap=0)
         for chkbox in self.field_edit_checkboxes:
             checkbox_sizer.Add(chkbox)
@@ -385,7 +389,8 @@ class MainWindow(wx.Frame):
             fp = open(self.profile_filepath, 'r')
         except IOError:
             wx.MessageDialog(self,
-                             'Cannot read data from {}. Please double check the file path.'.format(filepath),
+                             'Cannot read data from {}. Please double check the file path.'.format(
+                                 self.profile_filepath),
                              'The profile file cannot be loaded',
                              wx.ICON_ERROR).ShowModal()
             return
@@ -522,8 +527,6 @@ class MainWindow(wx.Frame):
 
             self.data_filepath = filepath
             self.datafile_lbl.SetLabelText("Data filepath: {}".format(self.data_filepath))
-            self.profile_filepath = ''
-            self.profile_lbl.SetLabelText("Profile filepath: {}".format(self.profile_filepath))
             self.data_loaded = True
             self.data_grid_box_sizer.Remove(0)
             self.data_grid.Destroy()
@@ -752,6 +755,12 @@ class MainWindow(wx.Frame):
 
     def onExportToSQLiteMenuItemClick(self, event, action='replace'):
 
+        if not self.profile_filepath:
+            wx.MessageDialog(None, "No profile path specified.",
+                             "Please save a profile to a file or load a profile to the session before continue.",
+                             wx.OK).ShowModal()
+            return
+
         if action == 'replace':
             style = wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT
         else:
@@ -830,9 +839,27 @@ class MainWindow(wx.Frame):
             flat_dataframe.to_sql('facts', con=dwengine, if_exists=action,
                                   index=False)
         except IOError:
-            print('Cannot save data to the database.')
+            wx.MessageDialog(None, "Error occurred while saving the data to the database.",
+                             "Failed to export data.",
+                             wx.OK).ShowModal()
+
+        metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
+
+        try:
+            metadata.to_sql('metadata', con=dwengine, if_exists='replace', index=False)
+        except IOError:
+            wx.MessageDialog(None, "Error occurred while saving the metadata to the database.",
+                             "Failed to export the metadata.",
+                             wx.OK).ShowModal()
 
     def onSaveToDatabaseMenuItemClick(self, event):
+        if not self.profile_filepath:
+            with wx.MessageDialog(None, message='Please save the profile to a file first.',
+                                  caption='Profile file not found error.',
+                                  style=wx.OK | wx.CENTER) as msgDialog:
+                msgDialog.ShowModal()
+            return
+
         if not self.dbengine:
             with wx.FileDialog(None, "Open data file",
                                wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
@@ -843,15 +870,9 @@ class MainWindow(wx.Frame):
                 else:
                     self.db_filepath = fileDialog.GetPath()
 
-        if self.db_filepath != 'Unknown':
-            try:
-                metadata = pandas.DataFrame({'profile': self.profile_filepath, 'updatedAt': datetime.utcnow()})
-            except ValueError:
-                metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
-            else:
-                metadata.append([{'profile': self.profile_filepath, 'updatedAt': datetime.utcnow()}], ignore_index=True)
-
-            self.dbfile_lbl.SetLabelText('Database filepath: {}'.format(self.db_filepath))
+        if self.db_filepath:
+            metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
+            self.dbfile_lbl.SetLabelText('Database filepath {} CONNECTED'.format(self.db_filepath))
             self.dbengine = sa.create_engine('sqlite:///{}'.format(self.db_filepath))
             try:
                 self.data_grid.table.df.to_sql('data', con=self.dbengine, index=False, if_exists='replace')
@@ -900,24 +921,25 @@ class MainWindow(wx.Frame):
                 return
             else:
                 self.db_filepath = fileDialog.GetPath()
-                self.dbfile_lbl.SetLabelText('Database filepath: {}'.format(self.db_filepath))
+
         if self.db_filepath:
             self.dbengine = sa.create_engine('sqlite:///{}'.format(self.db_filepath))
-            self.dbfile_lbl.SetLabelText(self.db_filepath)
+            self.dbfile_lbl.SetLabelText('Database filepath: {} CONNECTED'.format(self.db_filepath))
 
     def onConnectDbMenuItemClick(self, event):
-        with wx.FileDialog(None, "Open data file",
-                           wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
-                           style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) \
-                as fileDialog:
-            if fileDialog.ShowModal() == wx.ID_CANCEL:
-                return
-            else:
-                db_filepath = fileDialog.GetPath()
-        if db_filepath:
-            self.db_filepath = db_filepath
-            self.dbfile_lbl.SetLabelText('Database filepath: {}'.format(db_filepath))
-            self.dbengine = sa.create_engine('sqlite:///{}'.format(db_filepath))
+        if not self.db_filepath:
+            with wx.FileDialog(None, "Open data file",
+                               wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
+                               style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) \
+                    as fileDialog:
+                if fileDialog.ShowModal() == wx.ID_CANCEL:
+                    return
+                else:
+                    self.db_filepath = fileDialog.GetPath()
+
+        if self.db_filepath:
+            self.dbfile_lbl.SetLabelText('Database filepath: {} CONNECTED'.format(self.db_filepath))
+            self.dbengine = sa.create_engine('sqlite:///{}'.format(self.db_filepath))
             df = pandas.read_sql_table('data', con=self.dbengine)
             self.datafile_lbl.SetLabelText("Data filepath: {}".format(self.data_filepath))
             self.data_loaded = True
@@ -947,6 +969,9 @@ class MainWindow(wx.Frame):
             self.profile_lbl.SetLabelText("Profile filepath: {}".format(self.profile_filepath))
 
     def onDisconnectDbMenuItemClick(self, event):
+        if self.dbengine:
+            self.dbengine = None
+            self.dbfile_lbl.SetLabelText('Database filepath: {} NOT CONNECTED'.format(self.db_filepath))
         pass
 
     def on_antibiogram_click(self, event):
@@ -963,6 +988,16 @@ class MainWindow(wx.Frame):
             dwengine = sa.create_engine('sqlite:///{}'.format(dw_filepath))
 
         if dwengine:
+            metadata = pandas.read_sql_table('metadata', con=dwengine)
+            profile_filepath = metadata.tail(1)['profile'].to_list()[0]
+            profile = json.loads(open(profile_filepath, 'r').read())
+            date_column = None
+
+            for column in profile['data']:
+                if profile['data'][column]['date'] and \
+                        profile['data'][column]['keep']:
+                    date_column = profile['data'][column]['alias']
+
             df = pandas.read_sql_table('facts', con=dwengine)
 
             included_fields = list(df.columns)
@@ -972,34 +1007,62 @@ class MainWindow(wx.Frame):
 
             dlg = IndexFieldList(choices=included_fields)
 
-            if dlg.ShowModal() == wx.ID_OK:
-                indexes = [included_fields[i] for i in dlg.chlbox.CheckedItems]
-                biogram = df.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'],
-                                         aggfunc='count', fill_value=0)['species']
-                biogram_total = biogram['I'].add(biogram['R']).add(biogram['S'])
-                biogram_s = biogram['S']
-                biogram_ri = biogram['I'].add(biogram['R'])
-                biogram_s_pct = biogram_s / biogram_total
-                biogram_ri_pct = biogram_ri / biogram_total
-                biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
-                                      .applymap(str) + " (" + biogram_s.fillna(0).applymap(str) + ")"
-                biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
-                                      .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
-                with wx.FileDialog(None, "Open data file",
-                                   wildcard='Excel files (*.xlsx)|*.xlsx',
-                                   style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) \
-                        as fileDialog:
-                    if fileDialog.ShowModal() != wx.ID_CANCEL:
-                        excel_filepath = fileDialog.GetPath()
-                        writer = pandas.ExcelWriter(excel_filepath)
-                        biogram_s.fillna(0).to_excel(writer, 'count_s')
-                        biogram_s_pct.fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_s')
-                        biogram_ri.fillna(0).to_excel(writer, 'count_ir')
-                        biogram_ri_pct.fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_ir')
-                        biogram_narst_s.to_excel(writer, 'narst_s')
-                        biogram_narst_r.to_excel(writer, 'narst_ir')
-                        writer.save()
+            info = {}
+            info['profile filepath'] = [profile_filepath]
+            info['data source'] = [dw_filepath]
 
-                        with wx.MessageDialog(None, message='Antibiogram is generated.', caption='Finished',
-                                              style=wx.OK | wx.CENTER) as msgDialog:
-                            msgDialog.ShowModal()
+            if dlg.ShowModal() == wx.ID_OK:
+                if dlg.chlbox.CheckedItems:
+                    if not dlg.all.IsChecked():
+                        startdate = map(int, dlg.startDatePicker.GetValue().FormatISODate().split('-'))
+                        enddate = map(int, dlg.endDatePicker.GetValue().FormatISODate().split('-'))
+                        startdate = pandas.Timestamp(*startdate)
+                        enddate = pandas.Timestamp(*enddate)
+                        print(startdate, enddate)
+                        df_filter = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
+                        print(len(df), len(df_filter))
+                        info['startdate'] = [startdate]
+                        info['enddate'] = [enddate]
+                    else:
+                        df_filter = df
+
+                    indexes = [included_fields[i] for i in dlg.indexes]
+                    biogram = df_filter.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'],
+                                                    aggfunc='count', fill_value=0)['species']
+                    biogram_total = biogram['S'].add(biogram['I'], fill_value=0).add(biogram['R'], fill_value=0)
+                    biogram_s = biogram['S']
+                    biogram_ri = biogram['I'].add(biogram['R'], fill_value=0)
+                    #biogram_total = biogram_ri.add(biogram_s, fill_value=0)
+                    biogram_s_pct = biogram_s / biogram_total
+                    biogram_ri_pct = biogram_ri / biogram_total
+                    biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
+                                          .applymap(str) + " (" + biogram_s.fillna(0).applymap(str) + ")"
+                    biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
+                                          .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
+
+                    with wx.FileDialog(None, "Open data file",
+                                       wildcard='Excel files (*.xlsx)|*.xlsx',
+                                       style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) \
+                            as fileDialog:
+                        if fileDialog.ShowModal() != wx.ID_CANCEL:
+                            excel_filepath = fileDialog.GetPath()
+                            writer = pandas.ExcelWriter(excel_filepath)
+                            biogram_s.fillna(0).to_excel(writer, 'count_s')
+                            biogram_total.fillna(0).to_excel(writer, 'total')
+                            biogram_s_pct.fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_s')
+                            biogram_ri.fillna(0).to_excel(writer, 'count_ir')
+                            biogram_ri_pct.fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_ir')
+                            biogram_narst_s.to_excel(writer, 'narst_s')
+                            biogram_narst_r.to_excel(writer, 'narst_ir')
+                            pandas.DataFrame(info).to_excel(writer, 'info', index=False)
+                            writer.save()
+
+                            with wx.MessageDialog(None, message='Antibiogram is generated.', caption='Finished',
+                                                  style=wx.OK | wx.CENTER) as msgDialog:
+                                msgDialog.ShowModal()
+                else:
+                    with wx.MessageDialog(None,
+                                          message='Please choose at least one column as an index of the antibiogram.',
+                                          caption='No indexes specified.',
+                                          style=wx.OK | wx.CENTER) as msgDialog:
+                        msgDialog.ShowModal()
