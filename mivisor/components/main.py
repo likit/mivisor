@@ -144,7 +144,7 @@ class MainWindow(wx.Frame):
     def __init__(self, parent):
         super(MainWindow, self).__init__(parent)
         scr_width, scr_height = wx.DisplaySize()
-        self.version_no = '0.12 Beta'
+        self.version_no = '0.9'
         self.description = 'A user-friendly program for microbiological laboratory data management.'
         self.SetTitle('Mivisor Version {}'.format(self.version_no))
         self.SetSize((int(scr_width * 0.8), int(scr_height * 0.8)))
