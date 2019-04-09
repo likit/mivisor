@@ -190,6 +190,7 @@ class MainWindow(wx.Frame):
 
         dataMenu.Append(wx.ID_ANY, 'New field', fieldMenu)
         self.saveToDatabaseMenuItem = dataMenu.Append(wx.ID_ANY, 'Save to database')
+        self.appendToDatabaseMenuItem = dataMenu.Append(wx.ID_ANY, 'Append to database')
         dataMenu.AppendSeparator()
 
         self.organismItem = dataMenu.Append(wx.ID_ANY, 'Organism')
@@ -199,10 +200,8 @@ class MainWindow(wx.Frame):
 
         self.exportToExcelMenuItem = exportMenu.Append(wx.ID_ANY, 'To Excel')
         self.saveToSQLiteMenuItem = exportMenu.Append(wx.ID_ANY, 'Save to SQLite')
-        self.appendToSQLiteMenuItem = exportMenu.Append(wx.ID_ANY, 'Append to SQLite')
         self.exportToExcelMenuItem.Enable(False)
         self.saveToSQLiteMenuItem.Enable(False)
-        self.appendToSQLiteMenuItem.Enable(False)
         dataMenu.Append(wx.ID_ANY, 'Export flat table', exportMenu)
 
         drugRegMenuItem = registryMenu.Append(wx.ID_ANY, 'Drugs')
@@ -219,7 +218,8 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onCreateDbMenuItemClick, self.createDbMenuItem)
         self.Bind(wx.EVT_MENU, self.onConnectDbMenuItemClick, self.connectDbMenuItem)
         self.Bind(wx.EVT_MENU, self.onDisconnectDbMenuItemClick, self.disconnectDbMenuItem)
-        self.Bind(wx.EVT_MENU, self.onSaveToDatabaseMenuItemClick, self.saveToDatabaseMenuItem)
+        self.Bind(wx.EVT_MENU, lambda x: self.onSaveToDatabaseMenuItemClick(x, action='replace'), self.saveToDatabaseMenuItem)
+        self.Bind(wx.EVT_MENU, lambda x: self.onSaveToDatabaseMenuItemClick(x, action='append'), self.appendToDatabaseMenuItem)
 
         menubar.Append(fileMenu, '&File')
         menubar.Append(dataMenu, '&Data')
@@ -248,8 +248,6 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnExportRawData, self.exportToExcelMenuItem)
         self.Bind(wx.EVT_MENU, lambda x: self.onExportToSQLiteMenuItemClick(x, action='replace'),
                   self.saveToSQLiteMenuItem)
-        self.Bind(wx.EVT_MENU, lambda x: self.onExportToSQLiteMenuItemClick(x, action='append'),
-                  self.appendToSQLiteMenuItem)
 
         self.Bind(wx.EVT_MENU, self.on_drug_reg_menu_click, drugRegMenuItem)
 
@@ -546,7 +544,6 @@ class MainWindow(wx.Frame):
             self.organismItem.Enable(True)
             self.exportToExcelMenuItem.Enable(True)
             self.saveToSQLiteMenuItem.Enable(True)
-            self.appendToSQLiteMenuItem.Enable(True)
             self.biogramMenuItem.Enable(True)
             # need to enable load profile menu item here
             # after refactoring the menu bar
@@ -852,7 +849,7 @@ class MainWindow(wx.Frame):
                              "Failed to export the metadata.",
                              wx.OK).ShowModal()
 
-    def onSaveToDatabaseMenuItemClick(self, event):
+    def onSaveToDatabaseMenuItemClick(self, event, action='replace'):
         if not self.profile_filepath:
             with wx.MessageDialog(None, message='Please save the profile to a file first.',
                                   caption='Profile file not found error.',
@@ -871,11 +868,19 @@ class MainWindow(wx.Frame):
                     self.db_filepath = fileDialog.GetPath()
 
         if self.db_filepath:
+            with wx.MessageDialog(None,
+                                   "Are you sure you want to write to {}".format(self.db_filepath),
+                                   "Database is about to be overwritten.",
+                                   wx.OK | wx.CANCEL) as msgDialog:
+                ret = msgDialog.ShowModal()
+                if ret == wx.ID_CANCEL:
+                    return
+
             metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
             self.dbfile_lbl.SetLabelText('Database filepath {} CONNECTED'.format(self.db_filepath))
             self.dbengine = sa.create_engine('sqlite:///{}'.format(self.db_filepath))
             try:
-                self.data_grid.table.df.to_sql('data', con=self.dbengine, index=False, if_exists='replace')
+                self.data_grid.table.df.to_sql('data', con=self.dbengine, index=False, if_exists=action)
                 metadata.to_sql('metadata', con=self.dbengine, if_exists='replace', index=False)
             except:
                 with wx.MessageDialog(None, message='Failed to save data to the database.',
@@ -961,7 +966,6 @@ class MainWindow(wx.Frame):
             self.organismItem.Enable(True)
             self.exportToExcelMenuItem.Enable(True)
             self.saveToSQLiteMenuItem.Enable(True)
-            self.appendToSQLiteMenuItem.Enable(True)
 
             metadata = pandas.read_sql_table('metadata', con=self.dbengine)
             self.profile_filepath = metadata.tail(1)['profile'].to_list()[0]
