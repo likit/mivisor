@@ -87,22 +87,24 @@ class OrganismFieldFormDialog(wx.Dialog):
         self.Destroy()
 
     def onImportButtonClick(self, event):
+        filepath = None
         wildcard = "Excel (*.xls;*.xlsx)|*.xls;*.xlsx"
         with wx.FileDialog(None, "Choose a file", os.getcwd(),
                            "", wildcard, wx.FC_OPEN) as file_dlg:
             ret = file_dlg.ShowModal()
-            file_dlg.Destroy()
-            if ret == wx.ID_CANCEL:
-                return
-            else:
-                if file_dlg.GetPath():
-                    df = pandas.read_excel(file_dlg.GetPath(), usecols=2)
-                    self.grid_sizer.Remove(0)
-                    self.grid.Destroy()
-                    self.grid = DataGrid(self.data_panel)
-                    self.grid.set_table(df)
-                    self.grid_sizer.Add(self.grid, 1, flag=wx.EXPAND|wx.ALL)
-                    self.grid_sizer.Layout()
+            filepath = file_dlg.GetPath()
+
+        if ret == wx.ID_CANCEL:
+            return
+
+        if filepath:
+            df = pandas.read_excel(filepath, usecols=[0,1,2])
+            self.grid_sizer.Remove(0)
+            self.grid.Destroy()
+            self.grid = DataGrid(self.data_panel)
+            self.grid.set_table(df)
+            self.grid_sizer.Add(self.grid, 1, flag=wx.EXPAND|wx.ALL)
+            self.grid_sizer.Layout()
 
 
 # probably needs to extend from a base class instead for future reuse
@@ -153,23 +155,25 @@ class DrugRegFormDialog(wx.Dialog):
         self.Destroy()
 
     def onImportButtonClick(self, event):
+        filepath = None
         wildcard = "Excel (*.xls;*.xlsx)|*.xls;*.xlsx"
         with wx.FileDialog(None, "Choose a file", os.getcwd(),
                            "", wildcard, wx.FC_OPEN) as file_dlg:
             ret = file_dlg.ShowModal()
-            file_dlg.Destroy()
-            if ret == wx.ID_CANCEL:
-                return
-            else:
-                if file_dlg.GetPath():
-                    df = pandas.read_excel(file_dlg.GetPath(), usecols=3)
-                    self.grid_sizer.Remove(0)
-                    self.grid.Destroy()
-                    self.grid = DataGrid(self.data_panel)
-                    self.grid.set_table(df)
-                    self.grid_sizer.Add(self.grid, 1, flag=wx.EXPAND|wx.ALL)
-                    self.grid_sizer.Layout()
-                    self.grid.AutoSize()
+            filepath = file_dlg.GetPath()
+
+        if ret == wx.ID_CANCEL:
+            return
+
+        if filepath:
+            df = pandas.read_excel(filepath, usecols=[0,1,2,3])
+            self.grid_sizer.Remove(0)
+            self.grid.Destroy()
+            self.grid = DataGrid(self.data_panel)
+            self.grid.set_table(df)
+            self.grid_sizer.Add(self.grid, 1, flag=wx.EXPAND|wx.ALL)
+            self.grid_sizer.Layout()
+            self.grid.AutoSize()
 
     def onAddButtonClick(self, event):
         self.grid.AppendRows(1)
