@@ -61,6 +61,15 @@ class FieldAttribute():
             self.organisms = json_data['organisms']
             return True
 
+    def update_from_json_for_database(self, json_data):
+        json_data = json.loads(json_data)
+        profile_cols = json_data['columns']
+        profile_cols_no_agg = [col for col in profile_cols if not col.startswith('@')]
+        self.columns = profile_cols
+        self.data = json_data['data']
+        self.organisms = json_data['organisms']
+        return True
+
     def update_from_dataframe(self, data_frame):
         self.columns = []
         for n, column in enumerate(data_frame.columns):
@@ -395,7 +404,7 @@ class MainWindow(wx.Frame):
 
         json_data = fp.read()
         fp.close()
-        if not self.field_attr.update_from_json(json_data):
+        if not self.field_attr.update_from_json_for_database(json_data):
             wx.MessageDialog(self,
                              'Fields in the profile and the data do not match.',
                              'The profile cannot be loaded',
@@ -968,7 +977,7 @@ class MainWindow(wx.Frame):
             self.saveToSQLiteMenuItem.Enable(True)
 
             metadata = pandas.read_sql_table('metadata', con=self.dbengine)
-            self.profile_filepath = metadata.tail(1)['profile'].to_list()[0]
+            self.profile_filepath = metadata.tail(1)['profile'].tolist()[0]
             self.load_profile_from_filepath()
             self.profile_lbl.SetLabelText("Profile filepath: {}".format(self.profile_filepath))
 
@@ -993,7 +1002,7 @@ class MainWindow(wx.Frame):
 
         if dwengine:
             metadata = pandas.read_sql_table('metadata', con=dwengine)
-            profile_filepath = metadata.tail(1)['profile'].to_list()[0]
+            profile_filepath = metadata.tail(1)['profile'].tolist()[0]
             profile = json.loads(open(profile_filepath, 'r').read())
             date_column = None
 
