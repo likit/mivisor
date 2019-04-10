@@ -152,7 +152,7 @@ class MainWindow(wx.Frame):
     def __init__(self, parent):
         super(MainWindow, self).__init__(parent)
         scr_width, scr_height = wx.DisplaySize()
-        self.version_no = '0.9'
+        self.version_no = '2019.2'
         self.description = 'A user-friendly program for microbiological laboratory data management.'
         self.SetTitle('Mivisor Version {}'.format(self.version_no))
         self.SetSize((int(scr_width * 0.8), int(scr_height * 0.8)))
@@ -195,11 +195,14 @@ class MainWindow(wx.Frame):
         self.saveProfileItem.Enable(False)
 
         exitItem = fileMenu.Append(wx.ID_EXIT, 'Quit', 'Quit Application')
-        createFieldItem = fieldMenu.Append(wx.ID_ANY, 'Matching')
+        self.createFieldItem = fieldMenu.Append(wx.ID_ANY, 'Matching')
+        self.createFieldItem.Enable(False)
 
         dataMenu.Append(wx.ID_ANY, 'New field', fieldMenu)
         self.saveToDatabaseMenuItem = dataMenu.Append(wx.ID_ANY, 'Save to database')
+        self.saveToDatabaseMenuItem.Enable(False)
         self.appendToDatabaseMenuItem = dataMenu.Append(wx.ID_ANY, 'Append to database')
+        self.appendToDatabaseMenuItem.Enable(False)
         dataMenu.AppendSeparator()
 
         self.organismItem = dataMenu.Append(wx.ID_ANY, 'Organism')
@@ -249,7 +252,7 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnLoadMLAB, mlabItem)
         self.Bind(wx.EVT_MENU, self.OnLoadCSV, csvItem)
 
-        self.Bind(wx.EVT_MENU, self.OnCreateField, createFieldItem)
+        self.Bind(wx.EVT_MENU, self.OnCreateField, self.createFieldItem)
         self.Bind(wx.EVT_MENU, self.OnSaveProfile, self.saveProfileItem)
         self.Bind(wx.EVT_MENU, self.OnLoadProfile, self.loadProfileItem)
         self.Bind(wx.EVT_MENU, self.OnOrganismClick, self.organismItem)
@@ -554,6 +557,10 @@ class MainWindow(wx.Frame):
             self.exportToExcelMenuItem.Enable(True)
             self.saveToSQLiteMenuItem.Enable(True)
             self.biogramMenuItem.Enable(True)
+            self.loadProfileItem.Enable(True)
+            self.createFieldItem.Enable(True)
+            self.appendToDatabaseMenuItem.Enable(True)
+            self.saveToDatabaseMenuItem.Enable(True)
             # need to enable load profile menu item here
             # after refactoring the menu bar
 
@@ -577,11 +584,13 @@ class MainWindow(wx.Frame):
             if col['keep']:
                 columns.append(col['alias'])
 
-        dlg = wx.SingleChoiceDialog(None,
-                                    "Select a column", "Kept columns", columns)
-        if dlg.ShowModal() == wx.ID_OK:
-            sel_col = dlg.GetStringSelection()
-        dlg.Destroy()
+        with wx.SingleChoiceDialog(
+                None, "Select a column", "Kept columns", columns) as dlg:
+            if dlg.ShowModal() == wx.ID_OK:
+                sel_col = dlg.GetStringSelection()
+            else:
+                return
+
         if sel_col:
             sel_col_index = self.field_attr.get_col_index(sel_col)
 
@@ -697,7 +706,6 @@ class MainWindow(wx.Frame):
                 return
             else:
                 output_filepath = file_dlg.GetPath()
-                file_dlg.Destroy()
 
         info_columns = []
         drug_columns = []
@@ -758,6 +766,10 @@ class MainWindow(wx.Frame):
             flat_dataframe.to_excel(output_filepath, engine='xlsxwriter')
         except IOError:
             print('Cannot save data to file.')
+        else:
+            wx.MessageDialog(None, "Data have been export to Excel as a flat table.",
+                             "Export succeeds.",
+                             wx.OK).ShowModal()
 
     def onExportToSQLiteMenuItemClick(self, event, action='replace'):
 
@@ -848,6 +860,7 @@ class MainWindow(wx.Frame):
             wx.MessageDialog(None, "Error occurred while saving the data to the database.",
                              "Failed to export data.",
                              wx.OK).ShowModal()
+            return
 
         metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
 
@@ -857,6 +870,11 @@ class MainWindow(wx.Frame):
             wx.MessageDialog(None, "Error occurred while saving the metadata to the database.",
                              "Failed to export the metadata.",
                              wx.OK).ShowModal()
+            return
+
+        wx.MessageDialog(None, "Data have been exported as a flat table to the database.",
+                         "Export succeeds.",
+                         wx.OK).ShowModal()
 
     def onSaveToDatabaseMenuItemClick(self, event, action='replace'):
         if not self.profile_filepath:
@@ -867,7 +885,7 @@ class MainWindow(wx.Frame):
             return
 
         if not self.dbengine:
-            with wx.FileDialog(None, "Open data file",
+            with wx.FileDialog(None, "Choose or specify a database file",
                                wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
                                style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) \
                     as fileDialog:
@@ -980,6 +998,9 @@ class MainWindow(wx.Frame):
             self.profile_filepath = metadata.tail(1)['profile'].tolist()[0]
             self.load_profile_from_filepath()
             self.profile_lbl.SetLabelText("Profile filepath: {}".format(self.profile_filepath))
+            self.saveToDatabaseMenuItem.Enable(True)
+            self.appendToDatabaseMenuItem.Enable(True)
+            self.createFieldItem.Enable(True)
 
     def onDisconnectDbMenuItemClick(self, event):
         if self.dbengine:
