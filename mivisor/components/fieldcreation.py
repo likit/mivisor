@@ -247,10 +247,10 @@ class IndexFieldList(wx.Dialog):
 
     def onChecklistboxChecked(self, event):
         item = event.GetInt()
-        self.indexes.append(item)
-        if self.chlbox.IsChecked(item):
-            self.index_items_list.Append([self.choices[item]])
-        else:
+        if not self.chlbox.IsChecked(item):
             idx = self.indexes.index(item)
             self.index_items_list.DeleteItem(idx)
             self.indexes.remove(item)
+        else:
+            self.indexes.append(item)
+            self.index_items_list.Append([self.choices[item]])
