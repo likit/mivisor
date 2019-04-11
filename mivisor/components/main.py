@@ -185,8 +185,8 @@ class MainWindow(wx.Frame):
         databaseMenu = wx.Menu()
         imp = wx.Menu()
         mlabItem = imp.Append(wx.ID_ANY, 'MLAB')
-        csvItem = imp.Append(wx.ID_ANY, 'CSV')
-        csvItem.Enable(False)
+        # csvItem = imp.Append(wx.ID_ANY, 'CSV')
+        # csvItem.Enable(False)
         fileMenu.AppendSeparator()
         fileMenu.Append(wx.ID_ANY, 'I&mport', imp)
         fileMenu.AppendSeparator()
@@ -253,7 +253,7 @@ class MainWindow(wx.Frame):
 
         self.Bind(wx.EVT_MENU, self.OnQuit, exitItem)
         self.Bind(wx.EVT_MENU, self.OnLoadMLAB, mlabItem)
-        self.Bind(wx.EVT_MENU, self.OnLoadCSV, csvItem)
+        # self.Bind(wx.EVT_MENU, self.OnLoadCSV, csvItem)
 
         self.Bind(wx.EVT_MENU, self.OnCreateField, self.createFieldItem)
         self.Bind(wx.EVT_MENU, self.OnSaveProfile, self.saveProfileItem)
