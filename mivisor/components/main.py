@@ -14,6 +14,8 @@ from components.fieldcreation import (FieldCreateDialog, OrganismFieldFormDialog
 APPDATA_DIR = 'appdata'
 DRUG_REGISTRY_FILE = 'drugs.json'
 
+basepath = os.path.dirname(os.path.abspath(__file__))
+
 drug_dict = {}
 drug_df = None
 
@@ -152,6 +154,7 @@ class MainWindow(wx.Frame):
     def __init__(self, parent):
         super(MainWindow, self).__init__(parent)
         scr_width, scr_height = wx.DisplaySize()
+        self.SetIcon(wx.Icon(os.path.join(basepath, 'icons/appicon.ico')))
         self.version_no = '2019.2'
         self.description = 'A user-friendly program for microbiological laboratory data management.'
         self.SetTitle('Mivisor Version {}'.format(self.version_no))
