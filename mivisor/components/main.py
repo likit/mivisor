@@ -526,6 +526,11 @@ class MainWindow(wx.Frame):
             ret_ = dlg.ShowModal()
             if ret_ == wx.ID_NO:
                 return
+            self.profile_filepath = None
+            self.db_filepath = None
+            self.dbengine = None
+            self.dbfile_lbl.SetLabelText('Database filepath:')
+            self.profile_lbl.SetLabelText('Profile filepath:')
 
         df, filepath = self.load_datafile()
         if filepath:
@@ -1077,7 +1082,7 @@ class MainWindow(wx.Frame):
                     biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
                                           .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
 
-                    with wx.FileDialog(None, "Open data file",
+                    with wx.FileDialog(None, "Specify the output file",
                                        wildcard='Excel files (*.xlsx)|*.xlsx',
                                        style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) \
                             as fileDialog:
