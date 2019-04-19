@@ -836,6 +836,21 @@ class MainWindow(wx.Frame):
                     drug_columns.append(column)
                 else:
                     info_columns.append(column)
+
+        if not organism_column:
+            with wx.MessageDialog(None, 'Please specify the organism column.',
+                                  caption='No organism column found.') \
+                    as msgDlg:
+                msgDlg.ShowModal()
+                return
+
+        if not organism_column:
+            with wx.MessageDialog(None, 'Please specify some key columns.',
+                                  caption='No key columns found.') \
+                    as msgDlg:
+                msgDlg.ShowModal()
+                return
+
         dict_ = {}
         for column in info_columns:
             dict_[column['alias']] = self.data_grid.table.df[column['name']]
