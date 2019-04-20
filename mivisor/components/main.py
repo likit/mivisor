@@ -153,7 +153,7 @@ def show_sheets(parent, worksheets):
 
 
 class NotificationBox(wx.Dialog):
-    def __init__(self, parent, caption, message, pubsubmsg):
+    def __init__(self, parent, caption, message):
         super(NotificationBox, self).__init__(parent=parent,
                                               title=caption, size=(300,80),
                                               style=wx.CAPTION)
@@ -163,7 +163,7 @@ class NotificationBox(wx.Dialog):
         self.SetSizer(vsizer)
         self.Center(wx.HORIZONTAL)
 
-        pub.subscribe(self.endModal, pubsubmsg)
+        pub.subscribe(self.endModal, 'close')
         pub.subscribe(self.updateLabel, 'update-label')
 
 
@@ -534,15 +534,27 @@ class MainWindow(wx.Frame):
                     sel_worksheet = show_sheets(self, worksheets)
                 else:
                     sel_worksheet = worksheets[0]
-                df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
-                if not df.empty:
-                    return df, filepath
+
+                bag = {'data': None, 'filepath': ''}
+                def read_excel():
+                    df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
+                    bag['data'] = df
+                    bag['filepath'] = filepath
+                    wx.CallAfter(pub.sendMessage, 'close', rc=0)
+
+                thread = Thread(target=read_excel)
+                thread.start()
+                with NotificationBox(self, caption='Import Data',
+                                     message='Reading from the Excel file...') as md:
+                    md.ShowModal()
+
+                return bag['data'], bag['filepath']
 
         else:
-            wx.MessageDialog(None, 'File path is not valid!',
+            wx.MessageDialog(self, 'File path is not valid!',
                              'Please check the file path.',
                              wx.OK | wx.CENTER).ShowModal()
-        return pandas.DataFrame(), filepath
+            return pandas.DataFrame(), ''
 
     def OnLoadMLAB(self, e):
         if self.data_loaded:
@@ -819,16 +831,15 @@ class MainWindow(wx.Frame):
             try:
                 flat_dataframe.to_excel(output_filepath, engine='xlsxwriter')
             except IOError:
-                wx.CallAfter(pub.sendMessage, 'export-finished', rc=1)
+                wx.CallAfter(pub.sendMessage, 'close', rc=1)
 
-            wx.CallAfter(pub.sendMessage, 'export-finished', rc=0)
+            wx.CallAfter(pub.sendMessage, 'close', rc=0)
 
 
         thread = Thread(target=export)
         thread.start()
         with NotificationBox(self, caption='Export Data',
-                             message='Preparing data to export...',
-                             pubsubmsg='export-finished') as nd:
+                             message='Preparing data to export...') as nd:
             result = nd.ShowModal()
 
         if result == 0:
@@ -944,12 +955,12 @@ class MainWindow(wx.Frame):
 
             flat_dataframe = pandas.DataFrame(new_rows, columns=new_columns)
 
-            wx.CallAfter(pub.sendMessage, 'update-label', msg='Saving data to the database.')
+            wx.CallAfter(pub.sendMessage, 'update-label', msg='Saving data to the database...')
 
             try:
                 flat_dataframe.to_sql('facts', con=dwengine, if_exists=action, index=False)
             except IOError:
-                wx.CallAfter(pub.sendMessage, 'export-finished', rc=1)
+                wx.CallAfter(pub.sendMessage, 'close', rc=1)
 
             metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
 
@@ -959,15 +970,15 @@ class MainWindow(wx.Frame):
                 wx.MessageDialog(None, "Error occurred while saving the metadata to the database.",
                                  "Failed to export the metadata.",
                                  wx.OK).ShowModal()
-                wx.CallAfter(pub.sendMessage, 'export-finished', rc=2)
+                wx.CallAfter(pub.sendMessage, 'close', rc=2)
 
-            wx.CallAfter(pub.sendMessage, 'export-finished', rc=0)
+            wx.CallAfter(pub.sendMessage, 'close', rc=0)
 
         thread = Thread(target=export)
         thread.start()
         with NotificationBox(self, caption='Export Data',
-                             message='Preparing data to export...',
-                             pubsubmsg='export-finished') as nd:
+                             message='Preparing data to export...'
+                             ) as nd:
             result = nd.ShowModal()
 
         if result == 0:
