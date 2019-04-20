@@ -819,9 +819,10 @@ class MainWindow(wx.Frame):
             try:
                 flat_dataframe.to_excel(output_filepath, engine='xlsxwriter')
             except IOError:
-                pub.sendMessage('export-finished', rc=3)
-            else:
-                pub.sendMessage('export-finished', rc=0)
+                wx.CallAfter(pub.sendMessage, 'export-finished', rc=1)
+
+            wx.CallAfter(pub.sendMessage, 'export-finished', rc=0)
+
 
         thread = Thread(target=export)
         thread.start()
@@ -836,7 +837,7 @@ class MainWindow(wx.Frame):
                                   "Export succeeds.",
                                   wx.OK) as md:
                 md.ShowModal()
-        elif result == 3:
+        elif result == 1:
             with wx.MessageDialog(self,
                                   "Cannot save data to the output file.",
                                   "Export failed.",
@@ -887,81 +888,101 @@ class MainWindow(wx.Frame):
                     info_columns.append(column)
 
         if not organism_column:
-            with wx.MessageDialog(None, 'Please specify the organism column.',
-                                  caption='No organism column found.') \
-                    as msgDlg:
-                msgDlg.ShowModal()
-                return
-
-        if not organism_column:
-            with wx.MessageDialog(None, 'Please specify some key columns.',
-                                  caption='No key columns found.') \
-                    as msgDlg:
-                msgDlg.ShowModal()
-                return
-
-        dict_ = {}
-        for column in info_columns:
-            dict_[column['alias']] = self.data_grid.table.df[column['name']]
-
-        genuses = []
-        species = []
-        organisms = []
-        for org in self.data_grid.table.df[organism_column['name']]:
-            organisms.append(org)
-            org_item = self.field_attr.organisms.get(org, {'genus': org, 'species': org})
-            genuses.append(org_item.get('genus', org))
-            species.append(org_item.get('species', org))
-
-        dict_[organism_column['alias']] = organisms
-        dict_['genus'] = genuses
-        dict_['species'] = species
-        dict_['organism_name'] = [' '.join(item) for item in zip(genuses, species)]
-
-        cs = [col['alias'] for col in info_columns]
-        cs += [organism_column['alias'], 'genus', 'species']
-
-        no_drugs_data = pandas.DataFrame(dict_)
-        if dup_keys:
-            exported_data = no_drugs_data.drop_duplicates(
-                subset=dup_keys, keep='first'
-            )
-
-        new_rows = []
-        for i, row in enumerate(no_drugs_data.iterrows()):
-            idx, dat = row
-            for dc in drug_columns:
-                dat['drug'] = dc['alias']
-                dat['drugGroup'] = drug_dict.get(dc['name'].lower(), pandas.Series()).get('group', 'unspecified')
-                dat['sensitivity'] = self.data_grid.table.df[dc['name']][i]
-                new_rows.append(list(dat))
-
-        new_columns = list(exported_data.columns) + ['drug', 'drugGroup', 'sensitivity']
-
-        flat_dataframe = pandas.DataFrame(new_rows, columns=new_columns)
-
-        try:
-            flat_dataframe.to_sql('facts', con=dwengine, if_exists=action,
-                                  index=False)
-        except IOError:
-            wx.MessageDialog(None, "Error occurred while saving the data to the database.",
-                             "Failed to export data.",
-                             wx.OK).ShowModal()
+            with wx.MessageDialog(self,
+                                  "Please specify the organism column.",
+                                  "Export failed.",
+                                  wx.OK) as md:
+                md.ShowModal()
             return
 
-        metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
-
-        try:
-            metadata.to_sql('metadata', con=dwengine, if_exists='replace', index=False)
-        except IOError:
-            wx.MessageDialog(None, "Error occurred while saving the metadata to the database.",
-                             "Failed to export the metadata.",
-                             wx.OK).ShowModal()
+        if not dup_keys:
+            with wx.MessageDialog(self,
+                                  "Please specify some key columns.",
+                                  "Export failed.",
+                                  wx.OK) as md:
+                md.ShowModal()
             return
 
-        wx.MessageDialog(None, "Data have been exported as a flat table to the database.",
-                         "Export succeeds.",
-                         wx.OK).ShowModal()
+        def export():
+            dict_ = {}
+            for column in info_columns:
+                dict_[column['alias']] = self.data_grid.table.df[column['name']]
+
+            genuses = []
+            species = []
+            organisms = []
+            for org in self.data_grid.table.df[organism_column['name']]:
+                organisms.append(org)
+                org_item = self.field_attr.organisms.get(org, {'genus': org, 'species': org})
+                genuses.append(org_item.get('genus', org))
+                species.append(org_item.get('species', org))
+
+            dict_[organism_column['alias']] = organisms
+            dict_['genus'] = genuses
+            dict_['species'] = species
+            dict_['organism_name'] = [' '.join(item) for item in zip(genuses, species)]
+
+            cs = [col['alias'] for col in info_columns]
+            cs += [organism_column['alias'], 'genus', 'species']
+
+            no_drugs_data = pandas.DataFrame(dict_)
+            if dup_keys:
+                exported_data = no_drugs_data.drop_duplicates(
+                    subset=dup_keys, keep='first'
+                )
+
+            new_rows = []
+            for i, row in enumerate(no_drugs_data.iterrows()):
+                idx, dat = row
+                for dc in drug_columns:
+                    dat['drug'] = dc['alias']
+                    dat['drugGroup'] = drug_dict.get(dc['name'].lower(), pandas.Series()).get('group', 'unspecified')
+                    dat['sensitivity'] = self.data_grid.table.df[dc['name']][i]
+                    new_rows.append(list(dat))
+
+            new_columns = list(exported_data.columns) + ['drug', 'drugGroup', 'sensitivity']
+
+            flat_dataframe = pandas.DataFrame(new_rows, columns=new_columns)
+
+            wx.CallAfter(pub.sendMessage, 'update-label', msg='Saving data to the database.')
+
+            try:
+                flat_dataframe.to_sql('facts', con=dwengine, if_exists=action, index=False)
+            except IOError:
+                wx.CallAfter(pub.sendMessage, 'export-finished', rc=1)
+
+            metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
+
+            try:
+                metadata.to_sql('metadata', con=dwengine, if_exists='replace', index=False)
+            except IOError:
+                wx.MessageDialog(None, "Error occurred while saving the metadata to the database.",
+                                 "Failed to export the metadata.",
+                                 wx.OK).ShowModal()
+                wx.CallAfter(pub.sendMessage, 'export-finished', rc=2)
+
+            wx.CallAfter(pub.sendMessage, 'export-finished', rc=0)
+
+        thread = Thread(target=export)
+        thread.start()
+        with NotificationBox(self, caption='Export Data',
+                             message='Preparing data to export...',
+                             pubsubmsg='export-finished') as nd:
+            result = nd.ShowModal()
+
+        if result == 0:
+            wx.MessageDialog(self, "Data have been saved to the database.",
+                             "Export succeeds.",
+                             wx.OK).ShowModal()
+        if result == 1:
+            wx.MessageDialog(None, "Could not save data to the database.",
+                             "Export failed.",
+                             wx.OK).ShowModal()
+        if result == 2:
+            wx.MessageDialog(None, "Could not save the profile data to the database.",
+                             "Export failed.",
+                             wx.OK).ShowModal()
+
 
     def onSaveToDatabaseMenuItemClick(self, event, action='replace'):
         if not self.profile_filepath:
