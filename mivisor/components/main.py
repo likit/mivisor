@@ -4,8 +4,10 @@ import sqlalchemy as sa
 import xlrd
 import json
 import wx, wx.adv, wx.lib
-from datetime import datetime, date
+from datetime import datetime
 from wx.lib.wordwrap import wordwrap
+from wx.lib.pubsub import pub
+from threading import Thread
 
 from components.datatable import DataGrid
 from components.fieldcreation import (FieldCreateDialog, OrganismFieldFormDialog, DrugRegFormDialog,
@@ -150,6 +152,28 @@ def show_sheets(parent, worksheets):
     dlg.Destroy()
 
 
+class NotificationBox(wx.Dialog):
+    def __init__(self, parent, caption, message, pubsubmsg):
+        super(NotificationBox, self).__init__(parent=parent,
+                                              title=caption, size=(300,80),
+                                              style=wx.CAPTION)
+        self.label = wx.StaticText(self, label=message)
+        vsizer = wx.BoxSizer(wx.VERTICAL)
+        vsizer.Add(self.label, 1, wx.ALL | wx.EXPAND | wx.CENTER, 20)
+        self.SetSizer(vsizer)
+        self.Center(wx.HORIZONTAL)
+
+        pub.subscribe(self.endModal, pubsubmsg)
+        pub.subscribe(self.updateLabel, 'update-label')
+
+
+    def updateLabel(self, msg):
+        self.label.SetLabelText(msg)
+
+    def endModal(self, rc):
+        self.EndModal(rc)
+
+
 class MainWindow(wx.Frame):
     def __init__(self, parent):
         super(MainWindow, self).__init__(parent)
@@ -158,7 +182,7 @@ class MainWindow(wx.Frame):
         self.version_no = '2019.1'
         self.description = 'A user-friendly program for microbiological laboratory data management.'
         self.SetTitle('Mivisor Version {}'.format(self.version_no))
-        self.SetSize((int(scr_width * 0.8), int(scr_height * 0.8)))
+        self.SetSize((int(scr_width*0.9), int(scr_height*0.9)))
         self.Center()
 
         self.current_column = None
@@ -233,8 +257,10 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onCreateDbMenuItemClick, self.createDbMenuItem)
         self.Bind(wx.EVT_MENU, self.onConnectDbMenuItemClick, self.connectDbMenuItem)
         self.Bind(wx.EVT_MENU, self.onDisconnectDbMenuItemClick, self.disconnectDbMenuItem)
-        self.Bind(wx.EVT_MENU, lambda x: self.onSaveToDatabaseMenuItemClick(x, action='replace'), self.saveToDatabaseMenuItem)
-        self.Bind(wx.EVT_MENU, lambda x: self.onSaveToDatabaseMenuItemClick(x, action='append'), self.appendToDatabaseMenuItem)
+        self.Bind(wx.EVT_MENU, lambda x: self.onSaveToDatabaseMenuItemClick(x, action='replace'),
+                  self.saveToDatabaseMenuItem)
+        self.Bind(wx.EVT_MENU, lambda x: self.onSaveToDatabaseMenuItemClick(x, action='append'),
+                  self.appendToDatabaseMenuItem)
 
         menubar.Append(fileMenu, '&File')
         menubar.Append(dataMenu, '&Data')
@@ -732,67 +758,90 @@ class MainWindow(wx.Frame):
                     info_columns.append(column)
 
         if not organism_column:
-            with wx.MessageDialog(None, 'Please specify the organism column.',
-                                  caption='No organism column found.')\
-                    as msgDlg:
-                msgDlg.ShowModal()
-                return
+            with wx.MessageDialog(self,
+                                  "Please specify the organism column.",
+                                  "Export failed.",
+                                  wx.OK) as md:
+                md.ShowModal()
+            return
 
-        if not organism_column:
-            with wx.MessageDialog(None, 'Please specify some key columns.',
-                                  caption='No key columns found.') \
-                    as msgDlg:
-                msgDlg.ShowModal()
-                return
+        if not dup_keys:
+            with wx.MessageDialog(self,
+                                  "Please specify some key columns.",
+                                  "Export failed.",
+                                  wx.OK) as md:
+                md.ShowModal()
+            return
 
-        dict_ = {}
-        for column in info_columns:
-            dict_[column['alias']] = self.data_grid.table.df[column['name']]
+        def export():
+            dict_ = {}
+            for column in info_columns:
+                dict_[column['alias']] = self.data_grid.table.df[column['name']]
 
-        genuses = []
-        species = []
-        organisms = []
-        for org in self.data_grid.table.df[organism_column['name']]:
-            organisms.append(org)
-            org_item = self.field_attr.organisms.get(org, {'genus': org, 'species': org})
-            genuses.append(org_item.get('genus', org))
-            species.append(org_item.get('species', org))
+            genuses = []
+            species = []
+            organisms = []
+            for org in self.data_grid.table.df[organism_column['name']]:
+                organisms.append(org)
+                org_item = self.field_attr.organisms.get(org, {'genus': org, 'species': org})
+                genuses.append(org_item.get('genus', org))
+                species.append(org_item.get('species', org))
 
-        dict_[organism_column['alias']] = organisms
-        dict_['genus'] = genuses
-        dict_['species'] = species
-        dict_['organism_name'] = [' '.join(item) for item in zip(genuses, species)]
+            dict_[organism_column['alias']] = organisms
+            dict_['genus'] = genuses
+            dict_['species'] = species
+            dict_['organism_name'] = [' '.join(item) for item in zip(genuses, species)]
 
-        cs = [col['alias'] for col in info_columns]
-        cs += [organism_column['alias'], 'genus', 'species']
+            cs = [col['alias'] for col in info_columns]
+            cs += [organism_column['alias'], 'genus', 'species']
 
-        no_drugs_data = pandas.DataFrame(dict_)
-        if dup_keys:
-            exported_data = no_drugs_data.drop_duplicates(
-                subset=dup_keys, keep='first'
-            )
+            no_drugs_data = pandas.DataFrame(dict_)
+            if dup_keys:
+                exported_data = no_drugs_data.drop_duplicates(
+                    subset=dup_keys, keep='first'
+                )
 
-        new_rows = []
-        for i, row in enumerate(no_drugs_data.iterrows()):
-            idx, dat = row
-            for dc in drug_columns:
-                dat['drug'] = dc['alias']
-                dat['drugGroup'] = drug_dict.get(dc['name'].lower(), pandas.Series()).get('group', 'unspecified')
-                dat['sensitivity'] = self.data_grid.table.df[dc['name']][i]
-                new_rows.append(list(dat))
+            new_rows = []
+            for i, row in enumerate(no_drugs_data.iterrows()):
+                idx, dat = row
+                for dc in drug_columns:
+                    dat['drug'] = dc['alias']
+                    dat['drugGroup'] = drug_dict.get(dc['name'].lower(), pandas.Series()).get('group', 'unspecified')
+                    dat['sensitivity'] = self.data_grid.table.df[dc['name']][i]
+                    new_rows.append(list(dat))
 
-        new_columns = list(exported_data.columns) + ['drug', 'drugGroup', 'sensitivity']
+            new_columns = list(exported_data.columns) + ['drug', 'drugGroup', 'sensitivity']
 
-        flat_dataframe = pandas.DataFrame(new_rows, columns=new_columns)
+            flat_dataframe = pandas.DataFrame(new_rows, columns=new_columns)
 
-        try:
-            flat_dataframe.to_excel(output_filepath, engine='xlsxwriter')
-        except IOError:
-            print('Cannot save data to file.')
-        else:
-            wx.MessageDialog(None, "Data have been export to Excel as a flat table.",
-                             "Export succeeds.",
-                             wx.OK).ShowModal()
+            wx.CallAfter(pub.sendMessage, 'update-label', msg='Writing data to a file...')
+
+            try:
+                flat_dataframe.to_excel(output_filepath, engine='xlsxwriter')
+            except IOError:
+                pub.sendMessage('export-finished', rc=3)
+            else:
+                pub.sendMessage('export-finished', rc=0)
+
+        thread = Thread(target=export)
+        thread.start()
+        with NotificationBox(self, caption='Export Data',
+                             message='Preparing data to export...',
+                             pubsubmsg='export-finished') as nd:
+            result = nd.ShowModal()
+
+        if result == 0:
+            with wx.MessageDialog(None,
+                                  "Data have been export to Excel as a flat table.",
+                                  "Export succeeds.",
+                                  wx.OK) as md:
+                md.ShowModal()
+        elif result == 3:
+            with wx.MessageDialog(self,
+                                  "Cannot save data to the output file.",
+                                  "Export failed.",
+                                  wx.OK) as md:
+                md.ShowModal()
 
     def onExportToSQLiteMenuItemClick(self, event, action='replace'):
 
@@ -934,9 +983,9 @@ class MainWindow(wx.Frame):
 
         if self.db_filepath:
             with wx.MessageDialog(None,
-                                   "Are you sure you want to write to {}".format(self.db_filepath),
-                                   "Database is about to be overwritten.",
-                                   wx.OK | wx.CANCEL) as msgDialog:
+                                  "Are you sure you want to write to {}".format(self.db_filepath),
+                                  "Database is about to be overwritten.",
+                                  wx.OK | wx.CANCEL) as msgDialog:
                 ret = msgDialog.ShowModal()
                 if ret == wx.ID_CANCEL:
                     return
@@ -1090,9 +1139,7 @@ class MainWindow(wx.Frame):
                         enddate = map(int, dlg.endDatePicker.GetValue().FormatISODate().split('-'))
                         startdate = pandas.Timestamp(*startdate)
                         enddate = pandas.Timestamp(*enddate)
-                        print(startdate, enddate)
                         df_filter = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
-                        print(len(df), len(df_filter))
                         info['startdate'] = [startdate]
                         info['enddate'] = [enddate]
                     else:
@@ -1104,7 +1151,7 @@ class MainWindow(wx.Frame):
                     biogram_total = biogram['S'].add(biogram['I'], fill_value=0).add(biogram['R'], fill_value=0)
                     biogram_s = biogram['S']
                     biogram_ri = biogram['I'].add(biogram['R'], fill_value=0)
-                    #biogram_total = biogram_ri.add(biogram_s, fill_value=0)
+                    # biogram_total = biogram_ri.add(biogram_s, fill_value=0)
                     biogram_s_pct = biogram_s / biogram_total
                     biogram_ri_pct = biogram_ri / biogram_total
                     biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
