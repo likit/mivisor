@@ -1206,11 +1206,12 @@ class MainWindow(wx.Frame):
                             info['enddate'] = [enddate]
 
                     indexes = [included_fields[i] for i in dlg.indexes]
+                    other_columns = [c for c in df.columns.values if c not in indexes]
                     data = {}
                     def calculate():
                         try:
                             biogram = df_filter.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'],
-                                                            aggfunc='count', fill_value=0)['species']
+                                                            aggfunc='count', fill_value=0)[other_columns[0]]
                             biogram_total = biogram['S'].add(biogram['I'], fill_value=0).add(biogram['R'], fill_value=0)
                             biogram_s = biogram['S']
                             biogram_ri = biogram['I'].add(biogram['R'], fill_value=0)
