@@ -1194,30 +1194,56 @@ class MainWindow(wx.Frame):
 
             if dlg.ShowModal() == wx.ID_OK:
                 if dlg.chlbox.CheckedItems:
-                    if not dlg.all.IsChecked():
-                        startdate = map(int, dlg.startDatePicker.GetValue().FormatISODate().split('-'))
-                        enddate = map(int, dlg.endDatePicker.GetValue().FormatISODate().split('-'))
-                        startdate = pandas.Timestamp(*startdate)
-                        enddate = pandas.Timestamp(*enddate)
-                        df_filter = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
-                        info['startdate'] = [startdate]
-                        info['enddate'] = [enddate]
-                    else:
-                        df_filter = df
+                    df_filter = df  # data are filtered by the start and end date later if specified
+                    if date_column:
+                        if not dlg.all.IsChecked():
+                            startdate = map(int, dlg.startDatePicker.GetValue().FormatISODate().split('-'))
+                            enddate = map(int, dlg.endDatePicker.GetValue().FormatISODate().split('-'))
+                            startdate = pandas.Timestamp(*startdate)
+                            enddate = pandas.Timestamp(*enddate)
+                            df_filter = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
+                            info['startdate'] = [startdate]
+                            info['enddate'] = [enddate]
 
                     indexes = [included_fields[i] for i in dlg.indexes]
-                    biogram = df_filter.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'],
-                                                    aggfunc='count', fill_value=0)['species']
-                    biogram_total = biogram['S'].add(biogram['I'], fill_value=0).add(biogram['R'], fill_value=0)
-                    biogram_s = biogram['S']
-                    biogram_ri = biogram['I'].add(biogram['R'], fill_value=0)
-                    # biogram_total = biogram_ri.add(biogram_s, fill_value=0)
-                    biogram_s_pct = biogram_s / biogram_total
-                    biogram_ri_pct = biogram_ri / biogram_total
-                    biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
-                                          .applymap(str) + " (" + biogram_s.fillna(0).applymap(str) + ")"
-                    biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
-                                          .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
+                    data = {}
+                    def calculate():
+                        try:
+                            biogram = df_filter.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'],
+                                                            aggfunc='count', fill_value=0)['species']
+                            biogram_total = biogram['S'].add(biogram['I'], fill_value=0).add(biogram['R'], fill_value=0)
+                            biogram_s = biogram['S']
+                            biogram_ri = biogram['I'].add(biogram['R'], fill_value=0)
+                            biogram_s_pct = biogram_s / biogram_total
+                            biogram_ri_pct = biogram_ri / biogram_total
+                            biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
+                                                  .applymap(str) + " (" + biogram_s.fillna(0).applymap(str) + ")"
+                            biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
+                                                  .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
+                            data['biogram'] = biogram
+                            data['biogram_total'] = biogram_total
+                            data['biogram_s'] = biogram_s
+                            data['biogram_ri'] = biogram_ri
+                            data['biogram_s_pct'] = biogram_s_pct
+                            data['biogram_ri_pct'] = biogram_ri_pct
+                            data['biogram_narst_s'] = biogram_narst_s
+                            data['biogram_narst_r'] = biogram_narst_r
+                        except:
+                            wx.CallAfter(pub.sendMessage, 'close', rc=1)
+
+                        wx.CallAfter(pub.sendMessage, 'close', rc=0)
+
+                    thread = Thread(target=calculate)
+                    thread.start()
+                    with NotificationBox(self, caption='Generate Antibiogram',
+                                         message='Calculating antibiogram, please wait...') as md:
+                        result = md.ShowModal()
+                    if result > 0:
+                        with wx.MessageDialog(self, caption='Unknown Error Occurred',
+                                              message=('Program failed to calculate the antibiogram'
+                                                       'due to data integrity problem.')) as md:
+                            md.ShowModal()
+                            return
 
                     with wx.FileDialog(None, "Specify the output file",
                                        wildcard='Excel files (*.xlsx)|*.xlsx',
@@ -1226,13 +1252,13 @@ class MainWindow(wx.Frame):
                         if fileDialog.ShowModal() != wx.ID_CANCEL:
                             excel_filepath = fileDialog.GetPath()
                             writer = pandas.ExcelWriter(excel_filepath)
-                            biogram_s.fillna(0).to_excel(writer, 'count_s')
-                            biogram_total.fillna(0).to_excel(writer, 'total')
-                            biogram_s_pct.fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_s')
-                            biogram_ri.fillna(0).to_excel(writer, 'count_ir')
-                            biogram_ri_pct.fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_ir')
-                            biogram_narst_s.to_excel(writer, 'narst_s')
-                            biogram_narst_r.to_excel(writer, 'narst_ir')
+                            data['biogram_s'].fillna(0).to_excel(writer, 'count_s')
+                            data['biogram_total'].fillna(0).to_excel(writer, 'total')
+                            data['biogram_s_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_s')
+                            data['biogram_ri'].fillna(0).to_excel(writer, 'count_ir')
+                            data['biogram_ri_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_ir')
+                            data['biogram_narst_s'].to_excel(writer, 'narst_s')
+                            data['biogram_narst_r'].to_excel(writer, 'narst_ir')
                             pandas.DataFrame(info).to_excel(writer, 'info', index=False)
                             writer.save()
 
