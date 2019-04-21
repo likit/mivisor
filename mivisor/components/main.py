@@ -203,6 +203,7 @@ class MainWindow(wx.Frame):
         dataMenu = wx.Menu()
         fieldMenu = wx.Menu()
         exportMenu = wx.Menu()
+        antibiogramMenu = wx.Menu()
         registryMenu = wx.Menu()
         analyzeMenu = wx.Menu()
         aboutMenu = wx.Menu()
@@ -245,19 +246,19 @@ class MainWindow(wx.Frame):
 
         drugRegMenuItem = registryMenu.Append(wx.ID_ANY, 'Drugs')
 
-        self.biogramDatasetMenuItem = analyzeMenu.Append(wx.ID_ANY, 'Antibiogram from dataset')
+        self.biogramDatasetMenuItem = antibiogramMenu.Append(wx.ID_ANY, 'From this dataset')
         self.biogramDatasetMenuItem.Enable(False)
 
-        self.biogramDbMenuItem = analyzeMenu.Append(wx.ID_ANY, 'Antibiogram from a database')
+        self.biogramDbMenuItem = antibiogramMenu.Append(wx.ID_ANY, 'From flat database')
         self.biogramDbMenuItem.Enable(True)
+
+        analyzeMenu.Append(wx.ID_ANY, 'Antibiogram', antibiogramMenu)
 
         aboutMenuItem = aboutMenu.Append(wx.ID_ANY, "About the program")
 
-        self.createDbMenuItem = databaseMenu.Append(wx.ID_ANY, 'Create')
         self.connectDbMenuItem = databaseMenu.Append(wx.ID_ANY, 'Connect')
         self.disconnectDbMenuItem = databaseMenu.Append(wx.ID_ANY, 'Disconnect')
 
-        self.Bind(wx.EVT_MENU, self.onCreateDbMenuItemClick, self.createDbMenuItem)
         self.Bind(wx.EVT_MENU, self.onConnectDbMenuItemClick, self.connectDbMenuItem)
         self.Bind(wx.EVT_MENU, self.onDisconnectDbMenuItemClick, self.disconnectDbMenuItem)
         self.Bind(wx.EVT_MENU, lambda x: self.onSaveToDatabaseMenuItemClick(x, action='replace'),
@@ -281,7 +282,7 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_about_menu_click, aboutMenuItem)
 
         self.Bind(wx.EVT_MENU, self.OnQuit, exitItem)
-        self.Bind(wx.EVT_MENU, self.OnLoadMLAB, mlabItem)
+        self.Bind(wx.EVT_MENU, self.onLoadMLABItemClick, mlabItem)
         # self.Bind(wx.EVT_MENU, self.OnLoadCSV, csvItem)
 
         self.Bind(wx.EVT_MENU, self.OnCreateField, self.createFieldItem)
@@ -561,7 +562,7 @@ class MainWindow(wx.Frame):
                              wx.OK | wx.CENTER).ShowModal()
             return pandas.DataFrame(), ''
 
-    def OnLoadMLAB(self, e):
+    def onLoadMLABItemClick(self, e):
         if self.data_loaded:
             dlg = wx.MessageDialog(None, "Click \"Yes\" to continue or click \"No\" to return to your session.",
                                    "Data in this current session will be discarded!",
@@ -1024,22 +1025,8 @@ class MainWindow(wx.Frame):
                                 500, wx.ClientDC(self.preview_panel))
         wx.adv.AboutBox(info)
 
-    def onCreateDbMenuItemClick(self, event):
-        with wx.FileDialog(None, "Open data file",
-                           wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
-                           style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) \
-                as fileDialog:
-            if fileDialog.ShowModal() == wx.ID_CANCEL:
-                return
-            else:
-                self.db_filepath = fileDialog.GetPath()
-
-        if self.db_filepath:
-            self.dbengine = sa.create_engine('sqlite:///{}'.format(self.db_filepath))
-            self.dbfile_lbl.SetLabelText('Database filepath: {} CONNECTED'.format(self.db_filepath))
-
     def onConnectDbMenuItemClick(self, event):
-        if not self.db_filepath:
+        if not self.dbengine:
             with wx.FileDialog(None, "Open data file",
                                wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
                                style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) \
@@ -1086,8 +1073,15 @@ class MainWindow(wx.Frame):
     def onDisconnectDbMenuItemClick(self, event):
         if self.dbengine:
             self.dbengine = None
-            self.dbfile_lbl.SetLabelText('Database filepath: {} NOT CONNECTED'.format(self.db_filepath))
-        pass
+            self.dbfile_lbl.SetLabelText('Database filepath: NOT CONNECTED')
+            #TODO: find out the better way to reset the data grid
+            self.data_grid_box_sizer.Remove(0)
+            self.data_grid.Destroy()
+            self.data_grid = DataGrid(self.preview_panel)
+            self.data_grid.set_table(pandas.DataFrame())
+            self.data_grid.AutoSizeColumns()
+            self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND | wx.ALL)
+            self.data_grid_box_sizer.Layout()  # repaint the sizer
 
     def onBiogramDbMenuItemClick(self, event):
         dwengine = None
