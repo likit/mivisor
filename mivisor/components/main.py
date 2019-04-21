@@ -809,6 +809,7 @@ class MainWindow(wx.Frame):
 
         no_drugs_data = pandas.DataFrame(dict_)
         #TODO: inform user about error in deduplication if no date was found..
+        dup_keys.append('organism_name')
         if dup_keys and date_column:
             no_drugs_data = no_drugs_data.sort_values(by=date_column)
             exported_data = no_drugs_data.drop_duplicates(
@@ -1116,11 +1117,15 @@ class MainWindow(wx.Frame):
                     return
 
             date_column = None
+            dup_keys = []
             # need refactoring
             for column in profile['data']:
                 if profile['data'][column]['date'] and \
                         profile['data'][column]['keep']:
                     date_column = profile['data'][column]['alias']
+                elif profile['data'][column]['key'] and \
+                        profile['data'][column]['keep']:
+                    dup_keys.append(column)
 
             try:
                 df = pandas.read_sql_table('facts', con=dwengine)
@@ -1145,6 +1150,7 @@ class MainWindow(wx.Frame):
             included_fields.remove('drugGroup')
 
             dlg = IndexFieldList(choices=included_fields)
+            ncutoff = dlg.ncutoff.GetValue()
 
             info = {}
             info['profile filepath'] = [profile_filepath]
@@ -1164,7 +1170,7 @@ class MainWindow(wx.Frame):
                             info['enddate'] = [enddate]
 
                     indexes = [included_fields[i] for i in dlg.indexes]
-                    thread = Thread(target=self.generate_antibiogram, args=(df_filter, indexes))
+                    thread = Thread(target=self.generate_antibiogram, args=(df_filter, indexes, dup_keys, ncutoff))
                     thread.start()
                     with NotificationBox(self, caption='Generate Antibiogram',
                                          message='Calculating antibiogram, please wait...') as md:
@@ -1204,31 +1210,34 @@ class MainWindow(wx.Frame):
                         msgDialog.ShowModal()
 
 
-    def generate_antibiogram(self, df, indexes):
+    def generate_antibiogram(self, df, indexes, keys, ncutoff=30):
         self.biogram_data = {}
         groups = indexes + ['sensitivity', 'drugGroup', 'drug']
-        try:
-            cnt = df.groupby(groups).size().reset_index()
-            biogram = cnt.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'], fill_value=0)[0]
-            biogram_total = biogram['S'].add(biogram['I'], fill_value=0).add(biogram['R'], fill_value=0)
-            biogram_s = biogram['S']
-            biogram_ri = biogram['I'].add(biogram['R'], fill_value=0)
-            biogram_s_pct = biogram_s / biogram_total
-            biogram_ri_pct = biogram_ri / biogram_total
-            biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
-                                  .applymap(str) + " (" + biogram_s.fillna(0).applymap(str) + ")"
-            biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
-                                  .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
-            self.biogram_data['biogram'] = biogram
-            self.biogram_data['biogram_total'] = biogram_total
-            self.biogram_data['biogram_s'] = biogram_s
-            self.biogram_data['biogram_ri'] = biogram_ri
-            self.biogram_data['biogram_s_pct'] = biogram_s_pct
-            self.biogram_data['biogram_ri_pct'] = biogram_ri_pct
-            self.biogram_data['biogram_narst_s'] = biogram_narst_s
-            self.biogram_data['biogram_narst_r'] = biogram_narst_r
-        except:
-            wx.CallAfter(pub.sendMessage, 'close', rc=1)
+        keys.append('organism_name')
+        isolate_cnt = df.groupby(keys).size().groupby(['organism_name']).size()
+        cnt = df.groupby(groups).size().reset_index()
+        biogram = cnt.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'], fill_value=0)[0]
+        biogram = biogram[biogram.index.get_level_values('organism_name').isin(isolate_cnt[isolate_cnt>=ncutoff].index)]
+        if len(biogram) == 0:
+            wx.CallAfter(pub.sendMessage, 'close', rc=2)
+
+        biogram_total = biogram['S'].add(biogram['I'], fill_value=0).add(biogram['R'], fill_value=0)
+        biogram_s = biogram['S']
+        biogram_ri = biogram['I'].add(biogram['R'], fill_value=0)
+        biogram_s_pct = biogram_s / biogram_total
+        biogram_ri_pct = biogram_ri / biogram_total
+        biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
+                              .applymap(str) + " (" + biogram_s.fillna(0).applymap(str) + ")"
+        biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
+                              .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
+        self.biogram_data['biogram'] = biogram
+        self.biogram_data['biogram_total'] = biogram_total
+        self.biogram_data['biogram_s'] = biogram_s
+        self.biogram_data['biogram_ri'] = biogram_ri
+        self.biogram_data['biogram_s_pct'] = biogram_s_pct
+        self.biogram_data['biogram_ri_pct'] = biogram_ri_pct
+        self.biogram_data['biogram_narst_s'] = biogram_narst_s
+        self.biogram_data['biogram_narst_r'] = biogram_narst_r
 
         wx.CallAfter(pub.sendMessage, 'close', rc=0)
 
@@ -1254,15 +1263,19 @@ class MainWindow(wx.Frame):
             included_fields.remove('drugGroup')
 
             dlg = IndexFieldList(choices=included_fields)
+            ncutoff = dlg.ncutoff.GetValue()
 
             info = {}
             info['profile filepath'] = [self.profile_filepath]
             info['data source'] = [self.db_filepath]
 
+            dup_keys = []
             for colname in self.field_attr.columns:
                 column = self.field_attr.get_column(colname)
                 if column['keep'] and column['date']:
                     date_column = colname
+                elif column['keep'] and column['key']:
+                    dup_keys.append(colname)
 
             if dlg.ShowModal() == wx.ID_OK:
                 if not dlg.indexes:
@@ -1283,7 +1296,7 @@ class MainWindow(wx.Frame):
                      info['enddate'] = [enddate]
 
                 indexes = [included_fields[i] for i in dlg.indexes]
-                thread = Thread(target=self.generate_antibiogram, args=(df_filter, indexes))
+                thread = Thread(target=self.generate_antibiogram, args=(df_filter, indexes, dup_keys, ncutoff))
                 thread.start()
                 with NotificationBox(self, caption='Generate Antibiogram',
                                      message='Calculating antibiogram, please wait...') as md:

@@ -181,7 +181,7 @@ class DrugRegFormDialog(wx.Dialog):
 
 class IndexFieldList(wx.Dialog):
     def __init__(self, choices):
-        super(IndexFieldList, self).__init__(None, -1, "Antibiogram Indexes", size=(500,500))
+        super(IndexFieldList, self).__init__(None, -1, "Antibiogram Indexes", size=(350,600))
         panel = wx.Panel(self)
         vsizer = wx.BoxSizer(wx.VERTICAL)
         self.chlbox = wx.CheckListBox(panel, choices=choices)
@@ -200,12 +200,15 @@ class IndexFieldList(wx.Dialog):
 
         self.index_items_list = wx.ListCtrl(panel, wx.ID_ANY, style=wx.LC_LIST)
 
+        self.ncutoff = wx.SpinCtrl(panel, value="30", min=0, name="No.Cutoff")
+
         label = wx.StaticText(panel, label="Select indexes:")
 
         vsizer.Add(label, 0, wx.ALL, 5)
         vsizer.Add(self.chlbox, 1, wx.EXPAND | wx.ALL, 5)
 
         nextButton = wx.Button(panel, wx.ID_OK, label="Next")
+        nextButton.SetFocus()
         cancelButton = wx.Button(panel, wx.ID_CANCEL, label="Cancel")
         nextButton.Bind(wx.EVT_BUTTON, self.onNextButtonClick)
         cancelButton.Bind(wx.EVT_BUTTON, self.onCancelButtonClick)
@@ -220,11 +223,16 @@ class IndexFieldList(wx.Dialog):
         staticBoxSizer.Add(self.all, 0, wx.EXPAND | wx.ALL, 5)
         staticBoxSizer.Add(gridbox, 0, wx.EXPAND | wx.ALL, 5)
 
+        cutOffStaticBoxSizer = wx.StaticBoxSizer(wx.VERTICAL, panel,
+                                                 "Set the minimum the number of isolates:")
+        cutOffStaticBoxSizer.Add(self.ncutoff, wx.ALL | wx.ALIGN_LEFT, 5)
+
         startDateLabel = wx.StaticText(panel, label="Select start date")
         endDateLabel = wx.StaticText(panel, label="Select end date")
         gridbox.AddMany([startDateLabel, self.startDatePicker])
         gridbox.AddMany([endDateLabel, self.endDatePicker])
         vsizer.Add(self.index_items_list, 1, wx.EXPAND | wx.ALL, 5)
+        vsizer.Add(cutOffStaticBoxSizer, 0, wx.EXPAND | wx.ALIGN_LEFT | wx.ALL, 5)
         vsizer.Add(staticBoxSizer, 0, wx.EXPAND | wx.ALIGN_CENTER | wx.ALL, 5)
         vsizer.Add(hbox, 0, wx.ALIGN_CENTER | wx.ALL, 5)
         panel.SetSizer(vsizer)
