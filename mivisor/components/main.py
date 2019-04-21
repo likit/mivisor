@@ -244,7 +244,10 @@ class MainWindow(wx.Frame):
 
         drugRegMenuItem = registryMenu.Append(wx.ID_ANY, 'Drugs')
 
-        self.biogramMenuItem = analyzeMenu.Append(wx.ID_ANY, 'Antibiogram')
+        self.biogramDatasetMenuItem = analyzeMenu.Append(wx.ID_ANY, 'Antibiogram from dataset')
+        self.biogramDatasetMenuItem.Enable(False)
+
+        self.biogramMenuItem = analyzeMenu.Append(wx.ID_ANY, 'Antibiogram from a database')
         self.biogramMenuItem.Enable(True)
 
         aboutMenuItem = aboutMenu.Append(wx.ID_ANY, "About the program")
@@ -292,6 +295,7 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_drug_reg_menu_click, drugRegMenuItem)
 
         self.Bind(wx.EVT_MENU, self.on_antibiogram_click, self.biogramMenuItem)
+        self.Bind(wx.EVT_MENU, self.on_generate_antibiogram_from_dataset, self.biogramDatasetMenuItem)
 
         # init panels
         self.info_panel = wx.Panel(self, wx.ID_ANY)
@@ -602,7 +606,7 @@ class MainWindow(wx.Frame):
             self.organismItem.Enable(True)
             self.exportToExcelMenuItem.Enable(True)
             self.saveToSQLiteMenuItem.Enable(True)
-            self.biogramMenuItem.Enable(True)
+            self.biogramDatasetMenuItem.Enable(True)
             self.loadProfileItem.Enable(True)
             self.createFieldItem.Enable(True)
             self.appendToDatabaseMenuItem.Enable(True)
@@ -744,15 +748,7 @@ class MainWindow(wx.Frame):
         self.field_attr_list.Select(col_index)
         self.field_attr_list.Focus(col_index)
 
-    def OnExportRawData(self, event):
-        wildcard = "Excel (*.xlsx;*.xls)|*.xlsx;*.xls"
-        with wx.FileDialog(None, "Choose a file", os.getcwd(),
-                           "", wildcard, wx.FC_SAVE) as file_dlg:
-            if file_dlg.ShowModal() == wx.ID_CANCEL:
-                return
-            else:
-                output_filepath = file_dlg.GetPath()
-
+    def convert_to_flat(self):
         info_columns = []
         drug_columns = []
         dup_keys = []
@@ -761,11 +757,14 @@ class MainWindow(wx.Frame):
             column = self.field_attr.get_column(colname)
             if column['keep']:
                 if column['key'] and not column['organism'] and not column['drug']:
-                    dup_keys.append(column['alias'])
+                    dup_keys.append(colname)
                 if column['organism']:
                     organism_column = column
                 elif column['drug']:
                     drug_columns.append(column)
+                elif column['date']:
+                    date_column = colname
+                    info_columns.append(column)
                 else:
                     info_columns.append(column)
 
@@ -785,57 +784,61 @@ class MainWindow(wx.Frame):
                 md.ShowModal()
             return
 
-        def export():
-            dict_ = {}
-            for column in info_columns:
-                dict_[column['alias']] = self.data_grid.table.df[column['name']]
+        dict_ = {}
+        for column in info_columns:
+            dict_[column['alias']] = self.data_grid.table.df[column['name']]
 
-            genuses = []
-            species = []
-            organisms = []
-            for org in self.data_grid.table.df[organism_column['name']]:
-                organisms.append(org)
-                org_item = self.field_attr.organisms.get(org, {'genus': org, 'species': org})
-                genuses.append(org_item.get('genus', org))
-                species.append(org_item.get('species', org))
+        genuses = []
+        species = []
+        organisms = []
+        for org in self.data_grid.table.df[organism_column['name']]:
+            organisms.append(org)
+            org_item = self.field_attr.organisms.get(org, {'genus': org, 'species': org})
+            genuses.append(org_item.get('genus', org))
+            species.append(org_item.get('species', org))
 
-            dict_[organism_column['alias']] = organisms
-            dict_['genus'] = genuses
-            dict_['species'] = species
-            dict_['organism_name'] = [' '.join(item) for item in zip(genuses, species)]
+        dict_[organism_column['alias']] = organisms
+        dict_['genus'] = genuses
+        dict_['species'] = species
+        dict_['organism_name'] = [' '.join(item) for item in zip(genuses, species)]
 
-            cs = [col['alias'] for col in info_columns]
-            cs += [organism_column['alias'], 'genus', 'species']
+        cs = [col['alias'] for col in info_columns]
+        cs += [organism_column['alias'], 'genus', 'species']
 
-            no_drugs_data = pandas.DataFrame(dict_)
-            if dup_keys:
-                exported_data = no_drugs_data.drop_duplicates(
-                    subset=dup_keys, keep='first'
-                )
+        no_drugs_data = pandas.DataFrame(dict_)
+        #TODO: inform user about error in deduplication if no date was found..
+        if dup_keys and date_column:
+            no_drugs_data = no_drugs_data.sort_values(by=date_column)
+            exported_data = no_drugs_data.drop_duplicates(
+                subset=dup_keys, keep='first'
+            )
 
-            new_rows = []
-            for i, row in enumerate(no_drugs_data.iterrows()):
-                idx, dat = row
-                for dc in drug_columns:
-                    dat['drug'] = dc['alias']
-                    dat['drugGroup'] = drug_dict.get(dc['name'].lower(), pandas.Series()).get('group', 'unspecified')
-                    dat['sensitivity'] = self.data_grid.table.df[dc['name']][i]
-                    new_rows.append(list(dat))
+        new_rows = []
+        for i, row in enumerate(no_drugs_data.iterrows()):
+            idx, dat = row
+            for dc in drug_columns:
+                dat['drug'] = dc['alias']
+                dat['drugGroup'] = drug_dict.get(dc['name'].lower(), pandas.Series()).get('group', 'unspecified')
+                dat['sensitivity'] = self.data_grid.table.df[dc['name']][i]
+                new_rows.append(list(dat))
 
-            new_columns = list(exported_data.columns) + ['drug', 'drugGroup', 'sensitivity']
+        new_columns = list(exported_data.columns) + ['drug', 'drugGroup', 'sensitivity']
 
-            flat_dataframe = pandas.DataFrame(new_rows, columns=new_columns)
+        self.flat_dataframe = pandas.DataFrame(new_rows, columns=new_columns)
 
-            wx.CallAfter(pub.sendMessage, 'update-label', msg='Writing data to a file...')
+        wx.CallAfter(pub.sendMessage, 'close', rc=0)
 
-            try:
-                flat_dataframe.to_excel(output_filepath, engine='xlsxwriter')
-            except IOError:
-                wx.CallAfter(pub.sendMessage, 'close', rc=1)
 
-            wx.CallAfter(pub.sendMessage, 'close', rc=0)
+    def OnExportRawData(self, event):
+        wildcard = "Excel (*.xlsx;*.xls)|*.xlsx;*.xls"
+        with wx.FileDialog(None, "Choose a file", os.getcwd(),
+                           "", wildcard, wx.FC_SAVE) as file_dlg:
+            if file_dlg.ShowModal() == wx.ID_CANCEL:
+                return
+            else:
+                output_filepath = file_dlg.GetPath()
 
-        thread = Thread(target=export)
+        thread = Thread(target=self.convert_to_flat)
         thread.start()
         with NotificationBox(self, caption='Export Data',
                              message='Preparing data to export...') as nd:
@@ -855,20 +858,28 @@ class MainWindow(wx.Frame):
                 md.ShowModal()
 
     def onExportToSQLiteMenuItemClick(self, event, action='replace'):
-
+        style = wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT
         if not self.profile_filepath:
             wx.MessageDialog(None, "No profile path specified.",
                              "Please save a profile to a file or load a profile to the session before continue.",
                              wx.OK).ShowModal()
             return
 
-        if action == 'replace':
-            style = wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT
-        else:
-            style = wx.FD_SAVE
+        thread = Thread(target=self.convert_to_flat)
+        thread.start()
+        with NotificationBox(self, caption='Export Data',
+                             message='Preparing data to export...'
+                             ) as nd:
+            result = nd.ShowModal()
 
-        if not self.data_loaded:
-            return
+        if result == 1:
+            wx.MessageDialog(None, "Could not save data to the database.",
+                             "Export failed.",
+                             wx.OK).ShowModal()
+        if result == 2:
+            wx.MessageDialog(None, "Could not save the profile data to the database.",
+                             "Export failed.",
+                             wx.OK).ShowModal()
 
         with wx.FileDialog(None, "Choose an SQLite data file",
                            wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
@@ -881,117 +892,27 @@ class MainWindow(wx.Frame):
         if dw_filepath:
             dwengine = sa.create_engine('sqlite:///{}'.format(dw_filepath))
 
-        info_columns = []
-        drug_columns = []
-        dup_keys = []
-        organism_column = None
-        for colname in self.field_attr.columns:
-            column = self.field_attr.get_column(colname)
-            if column['keep']:
-                if column['key'] and not column['organism'] and not column['drug']:
-                    dup_keys.append(column['alias'])
-                if column['organism']:
-                    organism_column = column
-                elif column['drug']:
-                    drug_columns.append(column)
-                else:
-                    info_columns.append(column)
-
-        if not organism_column:
-            with wx.MessageDialog(self,
-                                  "Please specify the organism column.",
-                                  "Export failed.",
-                                  wx.OK) as md:
-                md.ShowModal()
+        try:
+            self.flat_dataframe.to_sql('facts', con=dwengine, if_exists='replace', index=False)
+        except IOError:
+            wx.MessageDialog(self, "Error occurred while saving the data to the database.",
+                             "Failed to save the data.",
+                             wx.OK).ShowModal()
             return
 
-        if not dup_keys:
-            with wx.MessageDialog(self,
-                                  "Please specify some key columns.",
-                                  "Export failed.",
-                                  wx.OK) as md:
-                md.ShowModal()
+        metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
+
+        try:
+            metadata.to_sql('metadata', con=dwengine, if_exists='replace', index=False)
+        except IOError:
+            wx.MessageDialog(self, "Error occurred while saving the metadata to the database.",
+                             "Failed to save the metadata.",
+                             wx.OK).ShowModal()
             return
 
-        def export():
-            dict_ = {}
-            for column in info_columns:
-                dict_[column['alias']] = self.data_grid.table.df[column['name']]
-
-            genuses = []
-            species = []
-            organisms = []
-            for org in self.data_grid.table.df[organism_column['name']]:
-                organisms.append(org)
-                org_item = self.field_attr.organisms.get(org, {'genus': org, 'species': org})
-                genuses.append(org_item.get('genus', org))
-                species.append(org_item.get('species', org))
-
-            dict_[organism_column['alias']] = organisms
-            dict_['genus'] = genuses
-            dict_['species'] = species
-            dict_['organism_name'] = [' '.join(item) for item in zip(genuses, species)]
-
-            cs = [col['alias'] for col in info_columns]
-            cs += [organism_column['alias'], 'genus', 'species']
-
-            no_drugs_data = pandas.DataFrame(dict_)
-            if dup_keys:
-                exported_data = no_drugs_data.drop_duplicates(
-                    subset=dup_keys, keep='first'
-                )
-
-            new_rows = []
-            for i, row in enumerate(no_drugs_data.iterrows()):
-                idx, dat = row
-                for dc in drug_columns:
-                    dat['drug'] = dc['alias']
-                    dat['drugGroup'] = drug_dict.get(dc['name'].lower(), pandas.Series()).get('group', 'unspecified')
-                    dat['sensitivity'] = self.data_grid.table.df[dc['name']][i]
-                    new_rows.append(list(dat))
-
-            new_columns = list(exported_data.columns) + ['drug', 'drugGroup', 'sensitivity']
-
-            flat_dataframe = pandas.DataFrame(new_rows, columns=new_columns)
-
-            wx.CallAfter(pub.sendMessage, 'update-label', msg='Saving data to the database...')
-
-            try:
-                flat_dataframe.to_sql('facts', con=dwengine, if_exists=action, index=False)
-            except IOError:
-                wx.CallAfter(pub.sendMessage, 'close', rc=1)
-
-            metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
-
-            try:
-                metadata.to_sql('metadata', con=dwengine, if_exists='replace', index=False)
-            except IOError:
-                wx.MessageDialog(None, "Error occurred while saving the metadata to the database.",
-                                 "Failed to export the metadata.",
-                                 wx.OK).ShowModal()
-                wx.CallAfter(pub.sendMessage, 'close', rc=2)
-
-            wx.CallAfter(pub.sendMessage, 'close', rc=0)
-
-        thread = Thread(target=export)
-        thread.start()
-        with NotificationBox(self, caption='Export Data',
-                             message='Preparing data to export...'
-                             ) as nd:
-            result = nd.ShowModal()
-
-        if result == 0:
-            wx.MessageDialog(self, "Data have been saved to the database.",
-                             "Export succeeds.",
-                             wx.OK).ShowModal()
-        if result == 1:
-            wx.MessageDialog(None, "Could not save data to the database.",
-                             "Export failed.",
-                             wx.OK).ShowModal()
-        if result == 2:
-            wx.MessageDialog(None, "Could not save the profile data to the database.",
-                             "Export failed.",
-                             wx.OK).ShowModal()
+        wx.MessageDialog(self, "Data have been exported to the database.",
+                         "Finished.",
+                         wx.OK).ShowModal()
 
     def onSaveToDatabaseMenuItemClick(self, event, action='replace'):
         if not self.profile_filepath:
@@ -1108,6 +1029,7 @@ class MainWindow(wx.Frame):
             self.saveProfileItem.Enable(True)
             self.loadProfileItem.Enable(True)
             self.organismItem.Enable(True)
+            self.biogramDatasetMenuItem.Enable(True)
             self.exportToExcelMenuItem.Enable(True)
             self.saveToSQLiteMenuItem.Enable(True)
 
@@ -1272,3 +1194,151 @@ class MainWindow(wx.Frame):
                                           caption='No indexes specified.',
                                           style=wx.OK | wx.CENTER) as msgDialog:
                         msgDialog.ShowModal()
+
+
+    def generate_antibiogram(self, df, indexes, other_columns):
+        self.biogram_data = {}
+        try:
+            biogram = df.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'],
+                                            aggfunc='count', fill_value=0)[other_columns[0]]
+            biogram_total = biogram['S'].add(biogram['I'], fill_value=0).add(biogram['R'], fill_value=0)
+            biogram_s = biogram['S']
+            biogram_ri = biogram['I'].add(biogram['R'], fill_value=0)
+            biogram_s_pct = biogram_s / biogram_total
+            biogram_ri_pct = biogram_ri / biogram_total
+            biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
+                                  .applymap(str) + " (" + biogram_s.fillna(0).applymap(str) + ")"
+            biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
+                                  .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
+            self.biogram_data['biogram'] = biogram
+            self.biogram_data['biogram_total'] = biogram_total
+            self.biogram_data['biogram_s'] = biogram_s
+            self.biogram_data['biogram_ri'] = biogram_ri
+            self.biogram_data['biogram_s_pct'] = biogram_s_pct
+            self.biogram_data['biogram_ri_pct'] = biogram_ri_pct
+            self.biogram_data['biogram_narst_s'] = biogram_narst_s
+            self.biogram_data['biogram_narst_r'] = biogram_narst_r
+        except:
+            wx.CallAfter(pub.sendMessage, 'close', rc=1)
+
+        wx.CallAfter(pub.sendMessage, 'close', rc=0)
+
+
+    def on_generate_antibiogram_from_dataset(self, event):
+        thread = Thread(target=self.convert_to_flat)
+        thread.start()
+        with NotificationBox(self, caption='Generating Antibiogram',
+                             message='Preparing data...') as nd:
+            result = nd.ShowModal()
+
+        if result > 1:
+            with wx.MessageDialog(self,
+                                  "Cannot save data to the output file.",
+                                  "Export failed.",
+                                  wx.OK) as md:
+                md.ShowModal()
+        else:
+            df = self.flat_dataframe
+            included_fields = list(df.columns)
+            included_fields.remove('sensitivity')
+            included_fields.remove('drug')
+            included_fields.remove('drugGroup')
+
+            dlg = IndexFieldList(choices=included_fields)
+
+            info = {}
+            info['profile filepath'] = [self.profile_filepath]
+            info['data source'] = [self.db_filepath]
+
+            if dlg.ShowModal() == wx.ID_OK:
+                if dlg.chlbox.CheckedItems:
+                    df_filter = df  # data are filtered by the start and end date later if specified
+                    '''
+                    if not dlg.all.IsChecked():
+                         startdate = map(int, dlg.startDatePicker.GetValue().FormatISODate().split('-'))
+                         enddate = map(int, dlg.endDatePicker.GetValue().FormatISODate().split('-'))
+                         startdate = pandas.Timestamp(*startdate)
+                         enddate = pandas.Timestamp(*enddate)
+                         df_filter = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
+                         info['startdate'] = [startdate]
+                         info['enddate'] = [enddate]
+                    '''
+
+                    indexes = [included_fields[i] for i in dlg.indexes]
+                    other_columns = [c for c in df.columns.values if c not in indexes]
+                    data = {}
+                    thread = Thread(target=self.generate_antibiogram(df_filter, indexes, other_columns))
+                    thread.start()
+                    with NotificationBox(self, caption='Generate Antibiogram',
+                                         message='Calculating antibiogram, please wait...') as md:
+                        result = md.ShowModal()
+                    if result > 0:
+                        with wx.MessageDialog(self, caption='Unknown Error Occurred',
+                                              message=('Program failed to calculate the antibiogram'
+                                                       'due to data integrity problem.')) as md:
+                            md.ShowModal()
+                            return
+
+                    with wx.FileDialog(None, "Specify the output file",
+                                       wildcard='Excel files (*.xlsx)|*.xlsx',
+                                       style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) \
+                            as fileDialog:
+                        if fileDialog.ShowModal() != wx.ID_CANCEL:
+                            excel_filepath = fileDialog.GetPath()
+                            writer = pandas.ExcelWriter(excel_filepath)
+                            self.biogram_data['biogram_s'].fillna(0).to_excel(writer, 'count_s')
+                            self.biogram_data['biogram_total'].fillna(0).to_excel(writer, 'total')
+                            self.biogram_data['biogram_s_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_s')
+                            self.biogram_data['biogram_ri'].fillna(0).to_excel(writer, 'count_ir')
+                            self.biogram_data['biogram_ri_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_ir')
+                            self.biogram_data['biogram_narst_s'].to_excel(writer, 'narst_s')
+                            self.biogram_data['biogram_narst_r'].to_excel(writer, 'narst_ir')
+                            pandas.DataFrame(info).to_excel(writer, 'info', index=False)
+                            writer.save()
+
+                            with wx.MessageDialog(None, message='Antibiogram is generated.', caption='Finished',
+                                                  style=wx.OK | wx.CENTER) as msgDialog:
+                                msgDialog.ShowModal()
+                else:
+                    with wx.MessageDialog(None,
+                                          message='Please choose at least one column as an index of the antibiogram.',
+                                          caption='No indexes specified.',
+                                          style=wx.OK | wx.CENTER) as msgDialog:
+                        msgDialog.ShowModal()
+
+                with wx.MessageDialog(self,
+                                      message='Do you want to save a flat data for later use?',
+                                      caption='Save Flat Data', style=wx.YES_NO) as md:
+                    if md.ShowModal() == wx.ID_YES:
+                        style = wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT
+                        with wx.FileDialog(None, "Choose an SQLite data file",
+                                           wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
+                                           style=style) \
+                                as fileDialog:
+                            if fileDialog.ShowModal() == wx.ID_CANCEL:
+                                return
+                            else:
+                                dw_filepath = fileDialog.GetPath()
+                        if dw_filepath:
+                            dwengine = sa.create_engine('sqlite:///{}'.format(dw_filepath))
+                            try:
+                                self.flat_dataframe.to_sql('facts', con=dwengine, if_exists='replace', index=False)
+                            except IOError:
+                                wx.MessageDialog(self, "Error occurred while saving the data to the database.",
+                                                 "Failed to save the data.",
+                                                 wx.OK).ShowModal()
+                                return
+
+                            metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
+
+                            try:
+                                metadata.to_sql('metadata', con=dwengine, if_exists='replace', index=False)
+                            except IOError:
+                                wx.MessageDialog(self, "Error occurred while saving the metadata to the database.",
+                                                 "Failed to save the metadata.",
+                                                 wx.OK).ShowModal()
+                                return
+
+                            wx.MessageDialog(self, "Data have been saved to the database.",
+                                             "Finished.",
+                                             wx.OK).ShowModal()
