@@ -248,8 +248,8 @@ class MainWindow(wx.Frame):
         self.biogramDatasetMenuItem = analyzeMenu.Append(wx.ID_ANY, 'Antibiogram from dataset')
         self.biogramDatasetMenuItem.Enable(False)
 
-        self.biogramMenuItem = analyzeMenu.Append(wx.ID_ANY, 'Antibiogram from a database')
-        self.biogramMenuItem.Enable(True)
+        self.biogramDbMenuItem = analyzeMenu.Append(wx.ID_ANY, 'Antibiogram from a database')
+        self.biogramDbMenuItem.Enable(True)
 
         aboutMenuItem = aboutMenu.Append(wx.ID_ANY, "About the program")
 
@@ -295,8 +295,8 @@ class MainWindow(wx.Frame):
 
         self.Bind(wx.EVT_MENU, self.on_drug_reg_menu_click, drugRegMenuItem)
 
-        self.Bind(wx.EVT_MENU, self.on_antibiogram_click, self.biogramMenuItem)
-        self.Bind(wx.EVT_MENU, self.on_generate_antibiogram_from_dataset, self.biogramDatasetMenuItem)
+        self.Bind(wx.EVT_MENU, self.onBiogramDbMenuItemClick, self.biogramDbMenuItem)
+        self.Bind(wx.EVT_MENU, self.onBiogramDatasetMenuItemClick, self.biogramDatasetMenuItem)
 
         # init panels
         self.info_panel = wx.Panel(self, wx.ID_ANY)
@@ -1089,7 +1089,7 @@ class MainWindow(wx.Frame):
             self.dbfile_lbl.SetLabelText('Database filepath: {} NOT CONNECTED'.format(self.db_filepath))
         pass
 
-    def on_antibiogram_click(self, event):
+    def onBiogramDbMenuItemClick(self, event):
         dwengine = None
         with wx.FileDialog(None, "Choose a flat SQLite data file",
                            wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
@@ -1170,35 +1170,7 @@ class MainWindow(wx.Frame):
                             info['enddate'] = [enddate]
 
                     indexes = [included_fields[i] for i in dlg.indexes]
-                    other_columns = [c for c in df.columns.values if c not in indexes]
-                    data = {}
-                    def calculate():
-                        try:
-                            biogram = df_filter.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'],
-                                                            aggfunc='count', fill_value=0)[other_columns[0]]
-                            biogram_total = biogram['S'].add(biogram['I'], fill_value=0).add(biogram['R'], fill_value=0)
-                            biogram_s = biogram['S']
-                            biogram_ri = biogram['I'].add(biogram['R'], fill_value=0)
-                            biogram_s_pct = biogram_s / biogram_total
-                            biogram_ri_pct = biogram_ri / biogram_total
-                            biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
-                                                  .applymap(str) + " (" + biogram_s.fillna(0).applymap(str) + ")"
-                            biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
-                                                  .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
-                            data['biogram'] = biogram
-                            data['biogram_total'] = biogram_total
-                            data['biogram_s'] = biogram_s
-                            data['biogram_ri'] = biogram_ri
-                            data['biogram_s_pct'] = biogram_s_pct
-                            data['biogram_ri_pct'] = biogram_ri_pct
-                            data['biogram_narst_s'] = biogram_narst_s
-                            data['biogram_narst_r'] = biogram_narst_r
-                        except:
-                            wx.CallAfter(pub.sendMessage, 'close', rc=1)
-
-                        wx.CallAfter(pub.sendMessage, 'close', rc=0)
-
-                    thread = Thread(target=calculate)
+                    thread = Thread(target=self.generate_antibiogram, args=(df_filter, indexes))
                     thread.start()
                     with NotificationBox(self, caption='Generate Antibiogram',
                                          message='Calculating antibiogram, please wait...') as md:
@@ -1217,13 +1189,13 @@ class MainWindow(wx.Frame):
                         if fileDialog.ShowModal() != wx.ID_CANCEL:
                             excel_filepath = fileDialog.GetPath()
                             writer = pandas.ExcelWriter(excel_filepath)
-                            data['biogram_s'].fillna(0).to_excel(writer, 'count_s')
-                            data['biogram_total'].fillna(0).to_excel(writer, 'total')
-                            data['biogram_s_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_s')
-                            data['biogram_ri'].fillna(0).to_excel(writer, 'count_ir')
-                            data['biogram_ri_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_ir')
-                            data['biogram_narst_s'].to_excel(writer, 'narst_s')
-                            data['biogram_narst_r'].to_excel(writer, 'narst_ir')
+                            self.biogram_data['biogram_total'].fillna(0).to_excel(writer, 'total')
+                            self.biogram_data['biogram_s'].fillna(0).to_excel(writer, 'count_s')
+                            self.biogram_data['biogram_ri'].fillna(0).to_excel(writer, 'count_ir')
+                            self.biogram_data['biogram_s_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_s')
+                            self.biogram_data['biogram_ri_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_ir')
+                            self.biogram_data['biogram_narst_s'].to_excel(writer, 'narst_s')
+                            self.biogram_data['biogram_narst_r'].to_excel(writer, 'narst_ir')
                             pandas.DataFrame(info).to_excel(writer, 'info', index=False)
                             writer.save()
 
@@ -1238,11 +1210,12 @@ class MainWindow(wx.Frame):
                         msgDialog.ShowModal()
 
 
-    def generate_antibiogram(self, df, indexes, other_columns):
+    def generate_antibiogram(self, df, indexes):
         self.biogram_data = {}
+        groups = indexes + ['sensitivity', 'drugGroup', 'drug']
         try:
-            biogram = df.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'],
-                                            aggfunc='count', fill_value=0)[other_columns[0]]
+            cnt = df.groupby(groups).size().reset_index()
+            biogram = cnt.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'], fill_value=0)[0]
             biogram_total = biogram['S'].add(biogram['I'], fill_value=0).add(biogram['R'], fill_value=0)
             biogram_s = biogram['S']
             biogram_ri = biogram['I'].add(biogram['R'], fill_value=0)
@@ -1266,7 +1239,7 @@ class MainWindow(wx.Frame):
         wx.CallAfter(pub.sendMessage, 'close', rc=0)
 
 
-    def on_generate_antibiogram_from_dataset(self, event):
+    def onBiogramDatasetMenuItemClick(self, event):
         thread = Thread(target=self.convert_to_flat)
         thread.start()
         with NotificationBox(self, caption='Generating Antibiogram',
@@ -1316,8 +1289,7 @@ class MainWindow(wx.Frame):
                      info['enddate'] = [enddate]
 
                 indexes = [included_fields[i] for i in dlg.indexes]
-                other_columns = [c for c in df.columns.values if c not in indexes]
-                thread = Thread(target=self.generate_antibiogram(df_filter, indexes, other_columns))
+                thread = Thread(target=self.generate_antibiogram, args=(df_filter, indexes))
                 thread.start()
                 with NotificationBox(self, caption='Generate Antibiogram',
                                      message='Calculating antibiogram, please wait...') as md:
@@ -1336,10 +1308,10 @@ class MainWindow(wx.Frame):
                     if fileDialog.ShowModal() != wx.ID_CANCEL:
                         excel_filepath = fileDialog.GetPath()
                         writer = pandas.ExcelWriter(excel_filepath)
-                        self.biogram_data['biogram_s'].fillna(0).to_excel(writer, 'count_s')
                         self.biogram_data['biogram_total'].fillna(0).to_excel(writer, 'total')
-                        self.biogram_data['biogram_s_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_s')
+                        self.biogram_data['biogram_s'].fillna(0).to_excel(writer, 'count_s')
                         self.biogram_data['biogram_ri'].fillna(0).to_excel(writer, 'count_ir')
+                        self.biogram_data['biogram_s_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_s')
                         self.biogram_data['biogram_ri_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_ir')
                         self.biogram_data['biogram_narst_s'].to_excel(writer, 'narst_s')
                         self.biogram_data['biogram_narst_r'].to_excel(writer, 'narst_ir')
