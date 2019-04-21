@@ -254,3 +254,58 @@ class IndexFieldList(wx.Dialog):
         else:
             self.indexes.append(item)
             self.index_items_list.Append([self.choices[item]])
+
+
+class DateRangeFieldList(wx.Dialog):
+    def __init__(self, parent):
+        super(DateRangeFieldList, self).__init__(parent, -1, "Date Range", size=(350,250))
+        panel = wx.Panel(self)
+        vsizer = wx.BoxSizer(wx.VERTICAL)
+        self.startDatePicker = DatePickerCtrl(panel, id=wx.ID_ANY, dt=datetime.datetime.now())
+        self.endDatePicker = DatePickerCtrl(panel, id=wx.ID_ANY, dt=datetime.datetime.now())
+        self.startDatePicker.Enable(False)
+        self.endDatePicker.Enable(False)
+        self.all = wx.CheckBox(panel, id=wx.ID_ANY, label="Select all dates")
+        self.all.SetValue(True)
+
+        self.all.Bind(wx.EVT_CHECKBOX, self.onCheckboxChecked)
+
+        nextButton = wx.Button(panel, wx.ID_OK, label="Next")
+        cancelButton = wx.Button(panel, wx.ID_CANCEL, label="Cancel")
+        nextButton.Bind(wx.EVT_BUTTON, self.onNextButtonClick)
+        cancelButton.Bind(wx.EVT_BUTTON, self.onCancelButtonClick)
+
+        staticBoxSizer = wx.StaticBoxSizer(wx.VERTICAL, panel, "Select a date range:")
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        hbox.Add(cancelButton, 0, wx.EXPAND | wx.ALL, 2)
+        hbox.Add(nextButton, 0, wx.EXPAND | wx.ALL, 2)
+
+        gridbox = wx.GridSizer(2,2,2,2)
+
+        staticBoxSizer.Add(self.all, 0, wx.EXPAND | wx.ALL, 5)
+        staticBoxSizer.Add(gridbox, 0, wx.EXPAND | wx.ALL, 5)
+
+        startDateLabel = wx.StaticText(panel, label="Select start date")
+        endDateLabel = wx.StaticText(panel, label="Select end date")
+        gridbox.AddMany([startDateLabel, self.startDatePicker])
+        gridbox.AddMany([endDateLabel, self.endDatePicker])
+        vsizer.Add(staticBoxSizer, 0, wx.EXPAND | wx.ALIGN_CENTER | wx.ALL, 5)
+        vsizer.Add(hbox, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+        panel.SetSizer(vsizer)
+
+    def onNextButtonClick(self, event):
+        self.EndModal(wx.ID_OK)
+        self.Destroy()
+
+    def onCancelButtonClick(self, event):
+        self.EndModal(wx.ID_CANCEL)
+        self.Destroy()
+
+    def onCheckboxChecked(self, event):
+        if event.IsChecked():
+            self.startDatePicker.Enable(False)
+            self.endDatePicker.Enable(False)
+        else:
+            self.startDatePicker.Enable(True)
+            self.endDatePicker.Enable(True)
+

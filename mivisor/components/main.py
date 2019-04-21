@@ -10,8 +10,9 @@ from wx.lib.pubsub import pub
 from threading import Thread
 
 from components.datatable import DataGrid
-from components.fieldcreation import (FieldCreateDialog, OrganismFieldFormDialog, DrugRegFormDialog,
-                                      IndexFieldList)
+from components.fieldcreation import (FieldCreateDialog, OrganismFieldFormDialog,
+                                      DrugRegFormDialog, IndexFieldList,
+                                      DateRangeFieldList)
 
 APPDATA_DIR = 'appdata'
 DRUG_REGISTRY_FILE = 'drugs.json'
@@ -844,18 +845,40 @@ class MainWindow(wx.Frame):
                              message='Preparing data to export...') as nd:
             result = nd.ShowModal()
 
-        if result == 0:
-            with wx.MessageDialog(None,
-                                  "Data have been export to Excel as a flat table.",
-                                  "Export succeeds.",
-                                  wx.OK) as md:
-                md.ShowModal()
-        elif result == 1:
-            with wx.MessageDialog(self,
-                                  "Cannot save data to the output file.",
-                                  "Export failed.",
-                                  wx.OK) as md:
-                md.ShowModal()
+        date_dlg = DateRangeFieldList(self)
+
+        for colname in self.field_attr.columns:
+            column = self.field_attr.get_column(colname)
+            if column['keep'] and column['date']:
+                date_column = colname
+
+        df = self.flat_dataframe
+
+        if date_dlg.ShowModal() == wx.ID_OK:
+            if not date_dlg.all.IsChecked():
+                startdate = map(int, date_dlg.startDatePicker.GetValue().FormatISODate().split('-'))
+                enddate = map(int, date_dlg.endDatePicker.GetValue().FormatISODate().split('-'))
+                startdate = pandas.Timestamp(*startdate)
+                enddate = pandas.Timestamp(*enddate)
+                self.flat_dataframe = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
+                print(startdate, enddate)
+
+            try:
+                self.flat_dataframe.to_excel(output_filepath, engine='xlsxwriter')
+            except:
+                with wx.MessageDialog(self,
+                                      "Cannot save data to the output file.",
+                                      "Export failed.",
+                                      wx.OK) as md:
+                    md.ShowModal()
+                return
+            else:
+                with wx.MessageDialog(None,
+                                      "Data have been export to Excel as a flat table.",
+                                      "Export succeeds.",
+                                      wx.OK) as md:
+                    md.ShowModal()
+                return
 
     def onExportToSQLiteMenuItemClick(self, event, action='replace'):
         style = wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT
@@ -871,7 +894,6 @@ class MainWindow(wx.Frame):
                              message='Preparing data to export...'
                              ) as nd:
             result = nd.ShowModal()
-
         if result == 1:
             wx.MessageDialog(None, "Could not save data to the database.",
                              "Export failed.",
@@ -881,38 +903,58 @@ class MainWindow(wx.Frame):
                              "Export failed.",
                              wx.OK).ShowModal()
 
-        with wx.FileDialog(None, "Choose an SQLite data file",
-                           wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
-                           style=style) \
-                as fileDialog:
-            if fileDialog.ShowModal() == wx.ID_CANCEL:
+        date_dlg = DateRangeFieldList(self)
+
+        for colname in self.field_attr.columns:
+            column = self.field_attr.get_column(colname)
+            if column['keep'] and column['date']:
+                date_column = colname
+
+        df = self.flat_dataframe
+        print(len(self.flat_dataframe))
+
+        if date_dlg.ShowModal() == wx.ID_OK:
+            if not date_dlg.all.IsChecked():
+                startdate = map(int, date_dlg.startDatePicker.GetValue().FormatISODate().split('-'))
+                enddate = map(int, date_dlg.endDatePicker.GetValue().FormatISODate().split('-'))
+                startdate = pandas.Timestamp(*startdate)
+                enddate = pandas.Timestamp(*enddate)
+                print(startdate, enddate)
+                self.flat_dataframe = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
+                print(len(self.flat_dataframe))
+
+            with wx.FileDialog(None, "Choose an SQLite data file",
+                               wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
+                               style=style) \
+                    as fileDialog:
+                if fileDialog.ShowModal() == wx.ID_CANCEL:
+                    return
+                else:
+                    dw_filepath = fileDialog.GetPath()
+            if dw_filepath:
+                dwengine = sa.create_engine('sqlite:///{}'.format(dw_filepath))
+
+            try:
+                self.flat_dataframe.to_sql('facts', con=dwengine, if_exists='replace', index=False)
+            except IOError:
+                wx.MessageDialog(self, "Error occurred while saving the data to the database.",
+                                 "Failed to save the data.",
+                                 wx.OK).ShowModal()
                 return
-            else:
-                dw_filepath = fileDialog.GetPath()
-        if dw_filepath:
-            dwengine = sa.create_engine('sqlite:///{}'.format(dw_filepath))
 
-        try:
-            self.flat_dataframe.to_sql('facts', con=dwengine, if_exists='replace', index=False)
-        except IOError:
-            wx.MessageDialog(self, "Error occurred while saving the data to the database.",
-                             "Failed to save the data.",
+            metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
+
+            try:
+                metadata.to_sql('metadata', con=dwengine, if_exists='replace', index=False)
+            except IOError:
+                wx.MessageDialog(self, "Error occurred while saving the metadata to the database.",
+                                 "Failed to save the metadata.",
+                                 wx.OK).ShowModal()
+                return
+
+            wx.MessageDialog(self, "Data have been exported to the database.",
+                             "Finished.",
                              wx.OK).ShowModal()
-            return
-
-        metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
-
-        try:
-            metadata.to_sql('metadata', con=dwengine, if_exists='replace', index=False)
-        except IOError:
-            wx.MessageDialog(self, "Error occurred while saving the metadata to the database.",
-                             "Failed to save the metadata.",
-                             wx.OK).ShowModal()
-            return
-
-        wx.MessageDialog(self, "Data have been exported to the database.",
-                         "Finished.",
-                         wx.OK).ShowModal()
 
     def onSaveToDatabaseMenuItemClick(self, event, action='replace'):
         if not self.profile_filepath:
@@ -1250,61 +1292,63 @@ class MainWindow(wx.Frame):
             info['profile filepath'] = [self.profile_filepath]
             info['data source'] = [self.db_filepath]
 
+            for colname in self.field_attr.columns:
+                column = self.field_attr.get_column(colname)
+                if column['keep'] and column['date']:
+                    date_column = colname
+
             if dlg.ShowModal() == wx.ID_OK:
-                if dlg.chlbox.CheckedItems:
-                    df_filter = df  # data are filtered by the start and end date later if specified
-                    '''
-                    if not dlg.all.IsChecked():
-                         startdate = map(int, dlg.startDatePicker.GetValue().FormatISODate().split('-'))
-                         enddate = map(int, dlg.endDatePicker.GetValue().FormatISODate().split('-'))
-                         startdate = pandas.Timestamp(*startdate)
-                         enddate = pandas.Timestamp(*enddate)
-                         df_filter = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
-                         info['startdate'] = [startdate]
-                         info['enddate'] = [enddate]
-                    '''
-
-                    indexes = [included_fields[i] for i in dlg.indexes]
-                    other_columns = [c for c in df.columns.values if c not in indexes]
-                    data = {}
-                    thread = Thread(target=self.generate_antibiogram(df_filter, indexes, other_columns))
-                    thread.start()
-                    with NotificationBox(self, caption='Generate Antibiogram',
-                                         message='Calculating antibiogram, please wait...') as md:
-                        result = md.ShowModal()
-                    if result > 0:
-                        with wx.MessageDialog(self, caption='Unknown Error Occurred',
-                                              message=('Program failed to calculate the antibiogram'
-                                                       'due to data integrity problem.')) as md:
-                            md.ShowModal()
-                            return
-
-                    with wx.FileDialog(None, "Specify the output file",
-                                       wildcard='Excel files (*.xlsx)|*.xlsx',
-                                       style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) \
-                            as fileDialog:
-                        if fileDialog.ShowModal() != wx.ID_CANCEL:
-                            excel_filepath = fileDialog.GetPath()
-                            writer = pandas.ExcelWriter(excel_filepath)
-                            self.biogram_data['biogram_s'].fillna(0).to_excel(writer, 'count_s')
-                            self.biogram_data['biogram_total'].fillna(0).to_excel(writer, 'total')
-                            self.biogram_data['biogram_s_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_s')
-                            self.biogram_data['biogram_ri'].fillna(0).to_excel(writer, 'count_ir')
-                            self.biogram_data['biogram_ri_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_ir')
-                            self.biogram_data['biogram_narst_s'].to_excel(writer, 'narst_s')
-                            self.biogram_data['biogram_narst_r'].to_excel(writer, 'narst_ir')
-                            pandas.DataFrame(info).to_excel(writer, 'info', index=False)
-                            writer.save()
-
-                            with wx.MessageDialog(None, message='Antibiogram is generated.', caption='Finished',
-                                                  style=wx.OK | wx.CENTER) as msgDialog:
-                                msgDialog.ShowModal()
-                else:
+                if not dlg.indexes:
                     with wx.MessageDialog(None,
                                           message='Please choose at least one column as an index of the antibiogram.',
                                           caption='No indexes specified.',
                                           style=wx.OK | wx.CENTER) as msgDialog:
                         msgDialog.ShowModal()
+                        return
+                df_filter = df  # data are filtered by the start and end date later if specified
+                if not dlg.all.IsChecked():
+                     startdate = map(int, dlg.startDatePicker.GetValue().FormatISODate().split('-'))
+                     enddate = map(int, dlg.endDatePicker.GetValue().FormatISODate().split('-'))
+                     startdate = pandas.Timestamp(*startdate)
+                     enddate = pandas.Timestamp(*enddate)
+                     df_filter = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
+                     info['startdate'] = [startdate]
+                     info['enddate'] = [enddate]
+
+                indexes = [included_fields[i] for i in dlg.indexes]
+                other_columns = [c for c in df.columns.values if c not in indexes]
+                thread = Thread(target=self.generate_antibiogram(df_filter, indexes, other_columns))
+                thread.start()
+                with NotificationBox(self, caption='Generate Antibiogram',
+                                     message='Calculating antibiogram, please wait...') as md:
+                    result = md.ShowModal()
+                if result > 0:
+                    with wx.MessageDialog(self, caption='Unknown Error Occurred',
+                                          message=('Program failed to calculate the antibiogram'
+                                                   'due to data integrity problem.')) as md:
+                        md.ShowModal()
+                        return
+
+                with wx.FileDialog(None, "Specify the output file",
+                                   wildcard='Excel files (*.xlsx)|*.xlsx',
+                                   style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) \
+                        as fileDialog:
+                    if fileDialog.ShowModal() != wx.ID_CANCEL:
+                        excel_filepath = fileDialog.GetPath()
+                        writer = pandas.ExcelWriter(excel_filepath)
+                        self.biogram_data['biogram_s'].fillna(0).to_excel(writer, 'count_s')
+                        self.biogram_data['biogram_total'].fillna(0).to_excel(writer, 'total')
+                        self.biogram_data['biogram_s_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_s')
+                        self.biogram_data['biogram_ri'].fillna(0).to_excel(writer, 'count_ir')
+                        self.biogram_data['biogram_ri_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_ir')
+                        self.biogram_data['biogram_narst_s'].to_excel(writer, 'narst_s')
+                        self.biogram_data['biogram_narst_r'].to_excel(writer, 'narst_ir')
+                        pandas.DataFrame(info).to_excel(writer, 'info', index=False)
+                        writer.save()
+
+                        with wx.MessageDialog(None, message='Antibiogram is generated.', caption='Finished',
+                                              style=wx.OK | wx.CENTER) as msgDialog:
+                            msgDialog.ShowModal()
 
                 with wx.MessageDialog(self,
                                       message='Do you want to save a flat data for later use?',
