@@ -155,7 +155,7 @@ def show_sheets(parent, worksheets):
 class NotificationBox(wx.Dialog):
     def __init__(self, parent, caption, message):
         super(NotificationBox, self).__init__(parent=parent,
-                                              title=caption, size=(300,80),
+                                              title=caption, size=(300, 80),
                                               style=wx.CAPTION)
         self.label = wx.StaticText(self, label=message)
         vsizer = wx.BoxSizer(wx.VERTICAL)
@@ -165,7 +165,6 @@ class NotificationBox(wx.Dialog):
 
         pub.subscribe(self.endModal, 'close')
         pub.subscribe(self.updateLabel, 'update-label')
-
 
     def updateLabel(self, msg):
         self.label.SetLabelText(msg)
@@ -182,7 +181,7 @@ class MainWindow(wx.Frame):
         self.version_no = '2019.1'
         self.description = 'A user-friendly program for microbiological laboratory data management.'
         self.SetTitle('Mivisor Version {}'.format(self.version_no))
-        self.SetSize((int(scr_width*0.9), int(scr_height*0.9)))
+        self.SetSize((int(scr_width * 0.9), int(scr_height * 0.9)))
         self.Center()
 
         self.current_column = None
@@ -536,6 +535,7 @@ class MainWindow(wx.Frame):
                     sel_worksheet = worksheets[0]
 
                 bag = {'data': None, 'filepath': ''}
+
                 def read_excel():
                     df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
                     bag['data'] = df
@@ -835,7 +835,6 @@ class MainWindow(wx.Frame):
 
             wx.CallAfter(pub.sendMessage, 'close', rc=0)
 
-
         thread = Thread(target=export)
         thread.start()
         with NotificationBox(self, caption='Export Data',
@@ -994,7 +993,6 @@ class MainWindow(wx.Frame):
                              "Export failed.",
                              wx.OK).ShowModal()
 
-
     def onSaveToDatabaseMenuItemClick(self, event, action='replace'):
         if not self.profile_filepath:
             with wx.MessageDialog(None, message='Please save the profile to a file first.',
@@ -1141,17 +1139,47 @@ class MainWindow(wx.Frame):
             dwengine = sa.create_engine('sqlite:///{}'.format(dw_filepath))
 
         if dwengine:
-            metadata = pandas.read_sql_table('metadata', con=dwengine)
-            profile_filepath = metadata.tail(1)['profile'].tolist()[0]
-            profile = json.loads(open(profile_filepath, 'r').read())
-            date_column = None
+            try:
+                metadata = pandas.read_sql_table('metadata', con=dwengine)
+            except ValueError:
+                with wx.MessageDialog(self, message='Please choose another database file.',
+                                      caption='Database schema not valid.') as md:
+                    md.ShowModal()
+                    return
+            else:
+                profile_filepath = metadata.tail(1)['profile'].tolist()[0]
 
+            try:
+                profile = json.loads(open(profile_filepath, 'r').read())
+            except IOError:
+                with wx.MessageDialog(self, message='Cannot read from {}. It does not exist.'.format(profile_filepath),
+                                      caption='Profile not found') as md:
+                    md.ShowModal()
+                    return
+
+            date_column = None
+            # need refactoring
             for column in profile['data']:
                 if profile['data'][column]['date'] and \
                         profile['data'][column]['keep']:
                     date_column = profile['data'][column]['alias']
 
-            df = pandas.read_sql_table('facts', con=dwengine)
+            try:
+                df = pandas.read_sql_table('facts', con=dwengine)
+            except ValueError:
+                with wx.MessageDialog(self,
+                                      message=('Cannot retrieve data from the database.'
+                                               'The database must contain the fact table.'),
+                                      caption='Database is not valid.') as md:
+                    md.ShowModal()
+                    return
+
+            if ('sensitivity' not in df.columns) or ('drug' not in df.columns) \
+                    or ('drugGroup' not in df.columns):
+                with wx.MessageDialog(self, message='Please choose another database file.',
+                                      caption='Database schema is not valid.') as md:
+                    md.ShowModal()
+                    return
 
             included_fields = list(df.columns)
             included_fields.remove('sensitivity')
