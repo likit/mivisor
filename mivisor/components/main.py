@@ -6,8 +6,10 @@ import json
 import wx, wx.adv, wx.lib
 from datetime import datetime
 from wx.lib.wordwrap import wordwrap
-from wx.lib.pubsub import pub
 from threading import Thread
+from pydispatch import dispatcher
+CLOSE_DIALOG_SIGNAL = 'close'
+UPDATE_SIGNAL = 'update'
 
 from components.datatable import DataGrid
 from components.fieldcreation import (FieldCreateDialog, OrganismFieldFormDialog,
@@ -164,8 +166,8 @@ class NotificationBox(wx.Dialog):
         self.SetSizer(vsizer)
         self.Center(wx.HORIZONTAL)
 
-        pub.subscribe(self.endModal, 'close')
-        pub.subscribe(self.updateLabel, 'update-label')
+        dispatcher.connect(self.endModal, signal=CLOSE_DIALOG_SIGNAL, sender=dispatcher.Any)
+        dispatcher.connect(self.updateLabel, signal=UPDATE_SIGNAL, sender=dispatcher.Any)
 
     def updateLabel(self, msg):
         self.label.SetLabelText(msg)
@@ -546,7 +548,7 @@ class MainWindow(wx.Frame):
                     df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
                     bag['data'] = df
                     bag['filepath'] = filepath
-                    wx.CallAfter(pub.sendMessage, 'close', rc=0)
+                    wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=0)
 
                 thread = Thread(target=read_excel)
                 thread.start()
@@ -829,7 +831,7 @@ class MainWindow(wx.Frame):
 
         self.flat_dataframe = pandas.DataFrame(new_rows, columns=new_columns)
 
-        wx.CallAfter(pub.sendMessage, 'close', rc=0)
+        wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=0)
 
 
     def OnExportRawData(self, event):
@@ -1219,7 +1221,7 @@ class MainWindow(wx.Frame):
         biogram = cnt.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'], fill_value=0)[0]
         biogram = biogram[biogram.index.get_level_values('organism_name').isin(isolate_cnt[isolate_cnt>=ncutoff].index)]
         if len(biogram) == 0:
-            wx.CallAfter(pub.sendMessage, 'close', rc=2)
+            wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=2)
 
         biogram_total = biogram['S'].add(biogram['I'], fill_value=0).add(biogram['R'], fill_value=0)
         biogram_s = biogram['S']
@@ -1239,7 +1241,7 @@ class MainWindow(wx.Frame):
         self.biogram_data['biogram_narst_s'] = biogram_narst_s
         self.biogram_data['biogram_narst_r'] = biogram_narst_r
 
-        wx.CallAfter(pub.sendMessage, 'close', rc=0)
+        wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=0)
 
 
     def onBiogramDatasetMenuItemClick(self, event):
