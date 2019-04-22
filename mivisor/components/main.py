@@ -1018,7 +1018,7 @@ class MainWindow(wx.Frame):
         info.Version = self.version_no
         info.Copyright = "(C) 2019 Faculty of Medical Technology, Mahidol University"
         info.Description = wordwrap(self.description + "\n" +
-                                    "For more information, please go to http://mtfocus.io/mivisor",
+                                    "For more information, please go to http://mtclan.net/mivisor",
                                     500, wx.ClientDC(self.preview_panel))
         info.WebSite = ("http://mtfocus.io", "MT Focus Technology")
         info.Developers = ["Likit Preeyanon\nEmail: likit.pre@mahidol.edu"]
