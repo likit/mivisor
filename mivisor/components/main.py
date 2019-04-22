@@ -1042,7 +1042,12 @@ class MainWindow(wx.Frame):
         if self.db_filepath:
             self.dbfile_lbl.SetLabelText('Database filepath: {} CONNECTED'.format(self.db_filepath))
             self.dbengine = sa.create_engine('sqlite:///{}'.format(self.db_filepath))
-            df = pandas.read_sql_table('data', con=self.dbengine)
+            try:
+                df = pandas.read_sql_table('data', con=self.dbengine)
+            except ValueError:
+                return wx.MessageBox(caption='Database Error',
+                            message='Database schema not valid. The "Data" table not available.')
+
             self.datafile_lbl.SetLabelText("Data filepath: {}".format(self.data_filepath))
             self.data_loaded = True
             self.data_grid_box_sizer.Remove(0)
@@ -1132,12 +1137,9 @@ class MainWindow(wx.Frame):
             try:
                 df = pandas.read_sql_table('facts', con=dwengine)
             except ValueError:
-                with wx.MessageDialog(self,
-                                      message=('Cannot retrieve data from the database.'
-                                               'The database must contain the fact table.'),
-                                      caption='Database is not valid.') as md:
-                    md.ShowModal()
-                    return
+                return wx.MessageBox(message=('Cannot retrieve data from {}.'
+                                               '\nThe database must contain the fact table.'.format(dw_filepath)),
+                                               caption='Database is not valid.')
 
             if ('sensitivity' not in df.columns) or ('drug' not in df.columns) \
                     or ('drugGroup' not in df.columns):
