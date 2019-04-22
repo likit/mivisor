@@ -173,6 +173,7 @@ class NotificationBox(wx.Dialog):
         self.label.SetLabelText(msg)
 
     def endModal(self, rc):
+        print(rc)
         self.EndModal(rc)
 
 
@@ -1174,10 +1175,13 @@ class MainWindow(wx.Frame):
                     indexes = [included_fields[i] for i in dlg.indexes]
                     thread = Thread(target=self.generate_antibiogram, args=(df_filter, indexes, dup_keys, ncutoff))
                     thread.start()
-                    with NotificationBox(self, caption='Generate Antibiogram',
-                                         message='Calculating antibiogram, please wait...') as md:
-                        result = md.ShowModal()
-                    if result > 0:
+                    result = NotificationBox(self, caption='Generate Antibiogram',
+                                         message='Calculating antibiogram, please wait...').ShowModal()
+                    if result == 1:
+                        return wx.MessageBox(caption='Empty Antibiogram',
+                                                message=('The antibiogram contains no data.\n'
+                                                            'Please adjust the minimum number of isolates.'))
+                    elif result > 1:
                         return wx.MessageBox(caption='Unknown Error Occurred',
                                                 message=('Program failed to calculate the antibiogram'
                                                             'due to data integrity problem.'))
@@ -1218,28 +1222,28 @@ class MainWindow(wx.Frame):
         cnt = df.groupby(groups).size().reset_index()
         biogram = cnt.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'], fill_value=0)[0]
         biogram = biogram[biogram.index.get_level_values('organism_name').isin(isolate_cnt[isolate_cnt>=ncutoff].index)]
-        if len(biogram) == 0:
-            wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=2)
-
-        biogram_total = biogram['S'].add(biogram['I'], fill_value=0).add(biogram['R'], fill_value=0)
-        biogram_s = biogram['S']
-        biogram_ri = biogram['I'].add(biogram['R'], fill_value=0)
-        biogram_s_pct = biogram_s / biogram_total
-        biogram_ri_pct = biogram_ri / biogram_total
-        biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
-                              .applymap(str) + " (" + biogram_s.fillna(0).applymap(str) + ")"
-        biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
-                              .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
-        self.biogram_data['biogram'] = biogram
-        self.biogram_data['biogram_total'] = biogram_total
-        self.biogram_data['biogram_s'] = biogram_s
-        self.biogram_data['biogram_ri'] = biogram_ri
-        self.biogram_data['biogram_s_pct'] = biogram_s_pct
-        self.biogram_data['biogram_ri_pct'] = biogram_ri_pct
-        self.biogram_data['biogram_narst_s'] = biogram_narst_s
-        self.biogram_data['biogram_narst_r'] = biogram_narst_r
-
-        wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=0)
+        if len(biogram) > 0:
+            biogram_total = biogram['S'].add(biogram['I'], fill_value=0).add(biogram['R'], fill_value=0)
+            biogram_s = biogram['S']
+            biogram_ri = biogram['I'].add(biogram['R'], fill_value=0)
+            biogram_s_pct = biogram_s / biogram_total
+            biogram_ri_pct = biogram_ri / biogram_total
+            biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
+                                .applymap(str) + " (" + biogram_s.fillna(0).applymap(str) + ")"
+            biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
+                                .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
+            self.biogram_data['biogram'] = biogram
+            self.biogram_data['biogram_total'] = biogram_total
+            self.biogram_data['biogram_s'] = biogram_s
+            self.biogram_data['biogram_ri'] = biogram_ri
+            self.biogram_data['biogram_s_pct'] = biogram_s_pct
+            self.biogram_data['biogram_ri_pct'] = biogram_ri_pct
+            self.biogram_data['biogram_narst_s'] = biogram_narst_s
+            self.biogram_data['biogram_narst_r'] = biogram_narst_r
+            wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=0)
+        else:
+            print('data is empty')
+            wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=1)
 
 
     def onBiogramDatasetMenuItemClick(self, event):
@@ -1250,7 +1254,7 @@ class MainWindow(wx.Frame):
             result = nd.ShowModal()
 
         if result > 1:
-            return wx.MessageDialog("Cannot save data to the output file.", "Export failed.")
+            return wx.MessageBox("Cannot convert data to flat table.", "Export failed.")
         else:
             df = self.flat_dataframe
             included_fields = list(df.columns)
@@ -1290,12 +1294,18 @@ class MainWindow(wx.Frame):
                      info['enddate'] = [enddate]
 
                 indexes = [included_fields[i] for i in dlg.indexes]
+                print('before running thread.')
                 thread = Thread(target=self.generate_antibiogram, args=(df_filter, indexes, dup_keys, ncutoff))
                 thread.start()
-                with NotificationBox(self, caption='Generate Antibiogram',
-                                     message='Calculating antibiogram, please wait...') as md:
-                    result = md.ShowModal()
-                if result > 0:
+                result = NotificationBox(self, caption='Generate Antibiogram',
+                                     message='Calculating antibiogram, please wait...').ShowModal()
+                print('after running thread.')
+
+                if result == 1:
+                    return wx.MessageBox(caption='Empty Antibiogram',
+                                            message=('The antibiogram contains no data.\n'
+                                                        'Please adjust the minimum number of isolates.'))
+                elif result > 1:
                     return wx.MessageBox(caption='Unknown Error Occurred',
                                             message=('Program failed to calculate the antibiogram'
                                                         'due to data integrity problem.'))
