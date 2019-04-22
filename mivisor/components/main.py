@@ -8,8 +8,8 @@ from datetime import datetime
 from wx.lib.wordwrap import wordwrap
 from threading import Thread
 from pydispatch import dispatcher
-CLOSE_DIALOG_SIGNAL = 'close'
-UPDATE_SIGNAL = 'update'
+
+CLOSE_DIALOG_SIGNAL = 'close-notification-dialog'
 
 from components.datatable import DataGrid
 from components.fieldcreation import (FieldCreateDialog, OrganismFieldFormDialog,
@@ -167,14 +167,15 @@ class NotificationBox(wx.Dialog):
         self.Center(wx.HORIZONTAL)
 
         dispatcher.connect(self.endModal, signal=CLOSE_DIALOG_SIGNAL, sender=dispatcher.Any)
-        dispatcher.connect(self.updateLabel, signal=UPDATE_SIGNAL, sender=dispatcher.Any)
 
     def updateLabel(self, msg):
         self.label.SetLabelText(msg)
 
     def endModal(self, rc):
-        print(rc)
-        self.EndModal(rc)
+        if bool(self):
+            self.EndModal(rc)
+        else:
+            return rc
 
 
 class MainWindow(wx.Frame):
@@ -866,7 +867,6 @@ class MainWindow(wx.Frame):
                 startdate = pandas.Timestamp(*startdate)
                 enddate = pandas.Timestamp(*enddate)
                 self.flat_dataframe = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
-                print(startdate, enddate)
 
             try:
                 self.flat_dataframe.to_excel(output_filepath, engine='xlsxwriter')
@@ -916,7 +916,6 @@ class MainWindow(wx.Frame):
                 date_column = colname
 
         df = self.flat_dataframe
-        print(len(self.flat_dataframe))
 
         if date_dlg.ShowModal() == wx.ID_OK:
             if not date_dlg.all.IsChecked():
@@ -924,9 +923,7 @@ class MainWindow(wx.Frame):
                 enddate = map(int, date_dlg.endDatePicker.GetValue().FormatISODate().split('-'))
                 startdate = pandas.Timestamp(*startdate)
                 enddate = pandas.Timestamp(*enddate)
-                print(startdate, enddate)
                 self.flat_dataframe = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
-                print(len(self.flat_dataframe))
 
             with wx.FileDialog(None, "Choose an SQLite data file",
                                wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
@@ -1153,7 +1150,6 @@ class MainWindow(wx.Frame):
             included_fields.remove('drugGroup')
 
             dlg = IndexFieldList(choices=included_fields)
-            ncutoff = dlg.ncutoff.GetValue()
 
             info = {}
             info['profile filepath'] = [profile_filepath]
@@ -1173,10 +1169,12 @@ class MainWindow(wx.Frame):
                             info['enddate'] = [enddate]
 
                     indexes = [included_fields[i] for i in dlg.indexes]
+                    ncutoff = dlg.ncutoff.GetValue()
                     thread = Thread(target=self.generate_antibiogram, args=(df_filter, indexes, dup_keys, ncutoff))
                     thread.start()
                     result = NotificationBox(self, caption='Generate Antibiogram',
                                          message='Calculating antibiogram, please wait...').ShowModal()
+
                     if result == 1:
                         return wx.MessageBox(caption='Empty Antibiogram',
                                                 message=('The antibiogram contains no data.\n'
@@ -1214,7 +1212,7 @@ class MainWindow(wx.Frame):
                         msgDialog.ShowModal()
 
 
-    def generate_antibiogram(self, df, indexes, keys, ncutoff=30):
+    def generate_antibiogram(self, df, indexes, keys, ncutoff=0):
         self.biogram_data = {}
         groups = indexes + ['sensitivity', 'drugGroup', 'drug']
         keys.append('organism_name')
@@ -1242,7 +1240,6 @@ class MainWindow(wx.Frame):
             self.biogram_data['biogram_narst_r'] = biogram_narst_r
             wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=0)
         else:
-            print('data is empty')
             wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=1)
 
 
@@ -1263,7 +1260,6 @@ class MainWindow(wx.Frame):
             included_fields.remove('drugGroup')
 
             dlg = IndexFieldList(choices=included_fields)
-            ncutoff = dlg.ncutoff.GetValue()
 
             info = {}
             info['profile filepath'] = [self.profile_filepath]
@@ -1294,12 +1290,11 @@ class MainWindow(wx.Frame):
                      info['enddate'] = [enddate]
 
                 indexes = [included_fields[i] for i in dlg.indexes]
-                print('before running thread.')
+                ncutoff = dlg.ncutoff.GetValue()
                 thread = Thread(target=self.generate_antibiogram, args=(df_filter, indexes, dup_keys, ncutoff))
                 thread.start()
                 result = NotificationBox(self, caption='Generate Antibiogram',
                                      message='Calculating antibiogram, please wait...').ShowModal()
-                print('after running thread.')
 
                 if result == 1:
                     return wx.MessageBox(caption='Empty Antibiogram',

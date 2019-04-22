@@ -200,7 +200,7 @@ class IndexFieldList(wx.Dialog):
 
         self.index_items_list = wx.ListCtrl(panel, wx.ID_ANY, style=wx.LC_LIST)
 
-        self.ncutoff = wx.SpinCtrl(panel, value="30", min=0, name="No.Cutoff")
+        self.ncutoff = wx.SpinCtrl(panel, value="", min=0, initial=30, name="No.Cutoff")
 
         label = wx.StaticText(panel, label="Select indexes:")
 
