@@ -1143,10 +1143,8 @@ class MainWindow(wx.Frame):
 
             if ('sensitivity' not in df.columns) or ('drug' not in df.columns) \
                     or ('drugGroup' not in df.columns):
-                with wx.MessageDialog(self, message='Please choose another database file.',
-                                      caption='Database schema is not valid.') as md:
-                    md.ShowModal()
-                    return
+                return wx.MessageBox(message='Please choose another database file.',
+                                        caption='Database schema is not valid.')
 
             included_fields = list(df.columns)
             included_fields.remove('sensitivity')
@@ -1180,11 +1178,9 @@ class MainWindow(wx.Frame):
                                          message='Calculating antibiogram, please wait...') as md:
                         result = md.ShowModal()
                     if result > 0:
-                        with wx.MessageDialog(self, caption='Unknown Error Occurred',
-                                              message=('Program failed to calculate the antibiogram'
-                                                       'due to data integrity problem.')) as md:
-                            md.ShowModal()
-                            return
+                        return wx.MessageBox(caption='Unknown Error Occurred',
+                                                message=('Program failed to calculate the antibiogram'
+                                                            'due to data integrity problem.'))
 
                     with wx.FileDialog(None, "Specify the output file",
                                        wildcard='Excel files (*.xlsx)|*.xlsx',
@@ -1254,11 +1250,7 @@ class MainWindow(wx.Frame):
             result = nd.ShowModal()
 
         if result > 1:
-            with wx.MessageDialog(self,
-                                  "Cannot save data to the output file.",
-                                  "Export failed.",
-                                  wx.OK) as md:
-                md.ShowModal()
+            return wx.MessageDialog("Cannot save data to the output file.", "Export failed.")
         else:
             df = self.flat_dataframe
             included_fields = list(df.columns)
@@ -1283,12 +1275,10 @@ class MainWindow(wx.Frame):
 
             if dlg.ShowModal() == wx.ID_OK:
                 if not dlg.indexes:
-                    with wx.MessageDialog(None,
-                                          message='Please choose at least one column as an index of the antibiogram.',
-                                          caption='No indexes specified.',
-                                          style=wx.OK | wx.CENTER) as msgDialog:
-                        msgDialog.ShowModal()
-                        return
+                    return wx.MessageBox(message=('Please choose at least one column '
+                                                    'as an index of the antibiogram.'),
+                                                    caption='No indexes specified.')
+
                 df_filter = df  # data are filtered by the start and end date later if specified
                 if not dlg.all.IsChecked():
                      startdate = map(int, dlg.startDatePicker.GetValue().FormatISODate().split('-'))
@@ -1306,11 +1296,9 @@ class MainWindow(wx.Frame):
                                      message='Calculating antibiogram, please wait...') as md:
                     result = md.ShowModal()
                 if result > 0:
-                    with wx.MessageDialog(self, caption='Unknown Error Occurred',
-                                          message=('Program failed to calculate the antibiogram'
-                                                   'due to data integrity problem.')) as md:
-                        md.ShowModal()
-                        return
+                    return wx.MessageBox(caption='Unknown Error Occurred',
+                                            message=('Program failed to calculate the antibiogram'
+                                                        'due to data integrity problem.'))
 
                 with wx.FileDialog(None, "Specify the output file",
                                    wildcard='Excel files (*.xlsx)|*.xlsx',
@@ -1351,20 +1339,18 @@ class MainWindow(wx.Frame):
                             try:
                                 self.flat_dataframe.to_sql('facts', con=dwengine, if_exists='replace', index=False)
                             except IOError:
-                                wx.MessageDialog(self, "Error occurred while saving the data to the database.",
-                                                 "Failed to save the data.",
-                                                 wx.OK).ShowModal()
-                                return
+                                return wx.MessageBox(
+                                            message="Error occurred while saving the data to the database.",
+                                            caption="Failed to save the data.")
 
-                            metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
+                            metadata = pandas.DataFrame({'profile': [self.profile_filepath],
+                                                            'updatedAt': [datetime.utcnow()]})
 
                             try:
                                 metadata.to_sql('metadata', con=dwengine, if_exists='replace', index=False)
                             except IOError:
-                                wx.MessageDialog(self, "Error occurred while saving the metadata to the database.",
-                                                 "Failed to save the metadata.",
-                                                 wx.OK).ShowModal()
-                                return
+                                return wx.MessageBox("Error occurred while saving the metadata to the database.",
+                                                 "Failed to save the metadata.")
 
                             wx.MessageDialog(self, "Data have been saved to the database.",
                                              "Finished.",
