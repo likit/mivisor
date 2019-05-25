@@ -1,5 +1,6 @@
 import os
 import pandas
+import numpy
 import sqlalchemy as sa
 import xlrd
 import json
@@ -1091,6 +1092,7 @@ class MainWindow(wx.Frame):
 
     def onBiogramDbMenuItemClick(self, event):
         dwengine = None
+        dwmeta = sa.MetaData()
         with wx.FileDialog(None, "Choose a flat SQLite data file",
                            wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
                            style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) \
@@ -1104,10 +1106,11 @@ class MainWindow(wx.Frame):
 
         if dwengine:
             try:
+                dwconn = dwengine.connect()
                 metadata = pandas.read_sql_table('metadata', con=dwengine)
             except ValueError:
                 with wx.MessageDialog(self, message='Please choose another database file.',
-                                      caption='Database schema not valid.') as md:
+                                      caption='Database failed to connect.') as md:
                     md.ShowModal()
                     return
             else:
@@ -1133,18 +1136,19 @@ class MainWindow(wx.Frame):
                     dup_keys.append(column)
 
             try:
-                df = pandas.read_sql_table('facts', con=dwengine)
+                fact_table = sa.Table('facts', dwmeta, autoload=True, autoload_with=dwengine)
             except ValueError:
                 return wx.MessageBox(message=('Cannot retrieve data from {}.'
                                                '\nThe database must contain the fact table.'.format(dw_filepath)),
                                                caption='Database is not valid.')
 
-            if ('sensitivity' not in df.columns) or ('drug' not in df.columns) \
-                    or ('drugGroup' not in df.columns):
+            fact_columns = fact_table.c.keys()
+            if ('sensitivity' not in fact_columns) or ('drug' not in fact_columns) \
+                    or ('drugGroup' not in fact_columns):
                 return wx.MessageBox(message='Please choose another database file.',
                                         caption='Database schema is not valid.')
 
-            included_fields = list(df.columns)
+            included_fields = list(fact_columns)
             included_fields.remove('sensitivity')
             included_fields.remove('drug')
             included_fields.remove('drugGroup')
@@ -1157,20 +1161,31 @@ class MainWindow(wx.Frame):
 
             if dlg.ShowModal() == wx.ID_OK:
                 if dlg.chlbox.CheckedItems:
-                    df_filter = df  # data are filtered by the start and end date later if specified
+                    indexes = [included_fields[i] for i in dlg.indexes]
+                    query_columns = [fact_table.c[idx] for idx in indexes] + [
+                                                fact_table.c.drugGroup,
+                                                fact_table.c.drug,
+                                                fact_table.c.sensitivity, 
+                                                sa.func.count(fact_table.c.sensitivity)
+                                            ]
+                    s = sa.select(query_columns)
                     if date_column:
                         if not dlg.all.IsChecked():
                             startdate = map(int, dlg.startDatePicker.GetValue().FormatISODate().split('-'))
                             enddate = map(int, dlg.endDatePicker.GetValue().FormatISODate().split('-'))
-                            startdate = pandas.Timestamp(*startdate)
-                            enddate = pandas.Timestamp(*enddate)
-                            df_filter = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
+                            #startdate = pandas.Timestamp(*startdate)
+                            #enddate = pandas.Timestamp(*enddate)
+                            #df_filter = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
+                            s = s.where(sa.and_(fact_table.c.DATE>=startdate, fact_table.c.DATE<=enddate))
                             info['startdate'] = [startdate]
                             info['enddate'] = [enddate]
 
-                    indexes = [included_fields[i] for i in dlg.indexes]
+                    for index in indexes:
+                        s = s.group_by(fact_table.c[index])
+                    s = s.group_by(fact_table.c.sensitivity)
+
                     ncutoff = dlg.ncutoff.GetValue()
-                    thread = Thread(target=self.generate_antibiogram, args=(df_filter, indexes, dup_keys, ncutoff))
+                    thread = Thread(target=self.generate_antibiogram, args=(s, dwengine, indexes, ncutoff))
                     thread.start()
                     result = NotificationBox(self, caption='Generate Antibiogram',
                                          message='Calculating antibiogram, please wait...').ShowModal()
@@ -1194,10 +1209,10 @@ class MainWindow(wx.Frame):
                             self.biogram_data['biogram_total'].fillna(0).to_excel(writer, 'total')
                             self.biogram_data['biogram_s'].fillna(0).to_excel(writer, 'count_s')
                             self.biogram_data['biogram_ri'].fillna(0).to_excel(writer, 'count_ir')
-                            self.biogram_data['biogram_s_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_s')
-                            self.biogram_data['biogram_ri_pct'].fillna(0).applymap(lambda x: round(x, 2)).to_excel(writer, 'percent_ir')
-                            self.biogram_data['biogram_narst_s'].to_excel(writer, 'narst_s')
-                            self.biogram_data['biogram_narst_r'].to_excel(writer, 'narst_ir')
+                            self.biogram_data['biogram_s_pct'].fillna(0).to_excel(writer, 'percent_s')
+                            self.biogram_data['biogram_ri_pct'].fillna(0).to_excel(writer, 'percent_ir')
+                            #self.biogram_data['biogram_narst_s'].to_excel(writer, 'narst_s')
+                            #self.biogram_data['biogram_narst_r'].to_excel(writer, 'narst_ir')
                             pandas.DataFrame(info).to_excel(writer, 'info', index=False)
                             writer.save()
 
@@ -1212,32 +1227,35 @@ class MainWindow(wx.Frame):
                         msgDialog.ShowModal()
 
 
-    def generate_antibiogram(self, df, indexes, keys, ncutoff=0):
+    def generate_antibiogram(self, command, engine, indexes, ncutoff=0):
         self.biogram_data = {}
-        groups = indexes + ['sensitivity', 'drugGroup', 'drug']
-        keys.append('organism_name')
-        isolate_cnt = df.groupby(keys).size().groupby(['organism_name']).size()
-        cnt = df.groupby(groups).size().reset_index()
-        biogram = cnt.pivot_table(index=indexes, columns=['sensitivity', 'drugGroup', 'drug'], fill_value=0)[0]
-        biogram = biogram[biogram.index.get_level_values('organism_name').isin(isolate_cnt[isolate_cnt>=ncutoff].index)]
-        if len(biogram) > 0:
-            biogram_total = biogram['S'].add(biogram['I'], fill_value=0).add(biogram['R'], fill_value=0)
-            biogram_s = biogram['S']
-            biogram_ri = biogram['I'].add(biogram['R'], fill_value=0)
-            biogram_s_pct = biogram_s / biogram_total
-            biogram_ri_pct = biogram_ri / biogram_total
-            biogram_narst_s = biogram_s_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
-                                .applymap(str) + " (" + biogram_s.fillna(0).applymap(str) + ")"
-            biogram_narst_r = biogram_ri_pct.fillna(0).applymap(lambda x: int(x * 100.0)) \
-                                .applymap(str) + " (" + biogram_ri.fillna(0).applymap(str) + ")"
-            self.biogram_data['biogram'] = biogram
-            self.biogram_data['biogram_total'] = biogram_total
-            self.biogram_data['biogram_s'] = biogram_s
-            self.biogram_data['biogram_ri'] = biogram_ri
-            self.biogram_data['biogram_s_pct'] = biogram_s_pct
-            self.biogram_data['biogram_ri_pct'] = biogram_ri_pct
-            self.biogram_data['biogram_narst_s'] = biogram_narst_s
-            self.biogram_data['biogram_narst_r'] = biogram_narst_r
+        def check_cutoff(x,cutoff=ncutoff):
+            if x < cutoff:
+                return numpy.nan
+            else:
+                return x
+
+        connection = engine.connect()
+        rp = connection.execute(command)
+        columns = indexes + ['drug_group', 'drug', 'result', 'count']
+        df = pandas.DataFrame(rp.fetchall(), columns=columns)
+        if len(df) > 0:
+            total = df.pivot_table(index=indexes,
+                                        columns=['drug_group', 'drug'],
+                                        aggfunc='sum')
+            total = total.applymap(check_cutoff)
+            sens = df[df['result']=='S']
+            sens = sens.pivot_table(index=indexes, columns=['drug_group', 'drug'])
+            resists = df[(df['result']=='R') | (df['result']=='I')]
+            resists = resists.pivot_table(index=indexes, columns=['drug_group', 'drug'])
+
+            self.biogram_data['biogram_total'] = total.dropna(how='all')
+            self.biogram_data['biogram_s'] = sens.dropna(how='all')
+            self.biogram_data['biogram_ri'] = resists.dropna(how='all')
+            self.biogram_data['biogram_s_pct'] = round((sens / total) * 100, 2).dropna(how='all')
+            self.biogram_data['biogram_ri_pct'] = round((resists / total) * 100, 2).dropna(how='all')
+            #self.biogram_data['biogram_narst_s'] = biogram_narst_s
+            #self.biogram_data['biogram_narst_r'] = biogram_narst_r
             wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=0)
         else:
             wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=1)
