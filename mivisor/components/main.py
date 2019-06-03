@@ -1182,6 +1182,8 @@ class MainWindow(wx.Frame):
 
                     for index in indexes:
                         s = s.group_by(fact_table.c[index])
+
+                    s = s.group_by(fact_table.c.drug)
                     s = s.group_by(fact_table.c.sensitivity)
 
                     ncutoff = dlg.ncutoff.GetValue()
@@ -1211,8 +1213,8 @@ class MainWindow(wx.Frame):
                             self.biogram_data['biogram_ri'].fillna(0).to_excel(writer, 'count_ir')
                             self.biogram_data['biogram_s_pct'].fillna(0).to_excel(writer, 'percent_s')
                             self.biogram_data['biogram_ri_pct'].fillna(0).to_excel(writer, 'percent_ir')
-                            #self.biogram_data['biogram_narst_s'].to_excel(writer, 'narst_s')
-                            #self.biogram_data['biogram_narst_r'].to_excel(writer, 'narst_ir')
+                            self.biogram_data['biogram_narst_s'].to_excel(writer, 'narst_s')
+                            self.biogram_data['biogram_narst_r'].to_excel(writer, 'narst_ir')
                             pandas.DataFrame(info).to_excel(writer, 'info', index=False)
                             writer.save()
 
@@ -1231,7 +1233,7 @@ class MainWindow(wx.Frame):
         self.biogram_data = {}
         def check_cutoff(x,cutoff=ncutoff):
             if x < cutoff:
-                return numpy.nan
+                return None
             else:
                 return x
 
@@ -1243,19 +1245,24 @@ class MainWindow(wx.Frame):
             total = df.pivot_table(index=indexes,
                                         columns=['drug_group', 'drug'],
                                         aggfunc='sum')
-            total = total.applymap(check_cutoff)
+            flt_total = total.applymap(check_cutoff)
             sens = df[df['result']=='S']
-            sens = sens.pivot_table(index=indexes, columns=['drug_group', 'drug'])
-            resists = df[(df['result']=='R') | (df['result']=='I')]
-            resists = resists.pivot_table(index=indexes, columns=['drug_group', 'drug'])
+            sens = sens.pivot_table(index=indexes, columns=['drug_group', 'drug']).fillna(0)
+            resists = total - sens.fillna(0)
 
-            self.biogram_data['biogram_total'] = total.dropna(how='all')
-            self.biogram_data['biogram_s'] = sens.dropna(how='all')
-            self.biogram_data['biogram_ri'] = resists.dropna(how='all')
-            self.biogram_data['biogram_s_pct'] = round((sens / total) * 100, 2).dropna(how='all')
-            self.biogram_data['biogram_ri_pct'] = round((resists / total) * 100, 2).dropna(how='all')
-            #self.biogram_data['biogram_narst_s'] = biogram_narst_s
-            #self.biogram_data['biogram_narst_r'] = biogram_narst_r
+            self.biogram_data['biogram_total'] = total
+            self.biogram_data['biogram_s'] = sens
+            self.biogram_data['biogram_ri'] = resists
+            sens_pct = round((sens / flt_total) * 100, 2)
+            resists_pct =  round((resists / flt_total) * 100, 2)
+            self.biogram_data['biogram_s_pct'] = sens_pct.fillna('')
+            self.biogram_data['biogram_ri_pct'] = resists_pct.fillna('')
+            biogram_narst_s = round(sens_pct).fillna('').applymap(str) + " (" + flt_total.applymap(lambda x: '' if pandas.isna(x) else '{:.0f}'.format(x)) + ")"
+            biogram_narst_r = round(resists_pct).fillna('').applymap(str) + " (" + flt_total.applymap(lambda x: '' if pandas.isna(x) else '{:.0f}'.format(x)) + ")"
+            biogram_narst_s = biogram_narst_s.applymap(lambda x: '' if x == ' ()' else x)
+            biogram_narst_r = biogram_narst_r.applymap(lambda x: '' if x == ' ()' else x)
+            self.biogram_data['biogram_narst_s'] = biogram_narst_s
+            self.biogram_data['biogram_narst_r'] = biogram_narst_r
             wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=0)
         else:
             wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=1)
