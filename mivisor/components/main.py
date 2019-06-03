@@ -755,9 +755,8 @@ class MainWindow(wx.Frame):
         self.field_attr_list.Select(col_index)
         self.field_attr_list.Focus(col_index)
 
-    def convert_to_flat(self):
+    def convert_to_flat(self, engine, startdate, enddate):
         info_columns = []
-        drug_columns = []
         dup_keys = []
         organism_column = None
         for colname in self.field_attr.columns:
@@ -767,11 +766,11 @@ class MainWindow(wx.Frame):
                     dup_keys.append(colname)
                 if column['organism']:
                     organism_column = column
-                elif column['drug']:
-                    drug_columns.append(column)
                 elif column['date']:
                     date_column = colname
                     info_columns.append(column)
+                elif column['drug']:
+                    continue
                 else:
                     info_columns.append(column)
 
@@ -791,14 +790,19 @@ class MainWindow(wx.Frame):
                 md.ShowModal()
             return
 
+        rf = pandas.read_sql_table('records', con=engine)
+        df = pandas.read_sql_table('drugs', con=engine)
+
         dict_ = {}
         for column in info_columns:
-            dict_[column['alias']] = self.data_grid.table.df[column['name']]
+            dict_[column['alias']] = rf[column['name']]
+
+        dict_['sur_key'] = rf['sur_key']
 
         genuses = []
         species = []
         organisms = []
-        for org in self.data_grid.table.df[organism_column['name']]:
+        for org in rf[organism_column['name']]:
             organisms.append(org)
             org_item = self.field_attr.organisms.get(org, {'genus': org, 'species': org})
             genuses.append(org_item.get('genus', org))
@@ -809,30 +813,28 @@ class MainWindow(wx.Frame):
         dict_['species'] = species
         dict_['organism_name'] = [' '.join(item) for item in zip(genuses, species)]
 
-        cs = [col['alias'] for col in info_columns]
-        cs += [organism_column['alias'], 'genus', 'species']
+        def get_drug_group(x):
+            global drug_dict
+            return drug_dict.get(x.lower(), pandas.Series()).get('group', 'unspecified')
 
-        no_drugs_data = pandas.DataFrame(dict_)
+        exported_data = pandas.DataFrame(dict_)
+
+        df['drugGroup'] = df['drug'].apply(lambda x: get_drug_group(x))
+        self.flat_dataframe = exported_data.merge(df, on='sur_key', how='outer')
+        del self.flat_dataframe['sur_key']  # remove surrogate key column
+
         #TODO: inform user about error in deduplication if no date was found..
+        #TODO: ask whether users want to deduplicate or not
         dup_keys.append('organism_name')
+        dup_keys.append('drug')
         if dup_keys and date_column:
-            no_drugs_data = no_drugs_data.sort_values(by=date_column)
-            exported_data = no_drugs_data.drop_duplicates(
+            self.flat_dataframe = self.flat_dataframe.sort_values(by=date_column)
+            self.flat_dataframe = self.flat_dataframe.drop_duplicates(
                 subset=dup_keys, keep='first'
             )
 
-        new_rows = []
-        for i, row in enumerate(no_drugs_data.iterrows()):
-            idx, dat = row
-            for dc in drug_columns:
-                dat['drug'] = dc['alias']
-                dat['drugGroup'] = drug_dict.get(dc['name'].lower(), pandas.Series()).get('group', 'unspecified')
-                dat['sensitivity'] = self.data_grid.table.df[dc['name']][i]
-                new_rows.append(list(dat))
-
-        new_columns = list(exported_data.columns) + ['drug', 'drugGroup', 'sensitivity']
-
-        self.flat_dataframe = pandas.DataFrame(new_rows, columns=new_columns)
+        if startdate and enddate:
+            self.flat_dataframe = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
 
         wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=0)
 
@@ -846,7 +848,7 @@ class MainWindow(wx.Frame):
             else:
                 output_filepath = file_dlg.GetPath()
 
-        thread = Thread(target=self.convert_to_flat)
+        thread = Thread(target=self.convert_to_flat, args=(self.dbengine,))
         thread.start()
         with NotificationBox(self, caption='Export Data',
                              message='Preparing data to export...') as nd:
@@ -894,7 +896,20 @@ class MainWindow(wx.Frame):
                              wx.OK).ShowModal()
             return
 
-        thread = Thread(target=self.convert_to_flat)
+        # Select date range to export data
+        date_dlg = DateRangeFieldList(self)
+
+        if date_dlg.ShowModal() == wx.ID_OK:
+            if not date_dlg.all.IsChecked():
+                startdate = map(int, date_dlg.startDatePicker.GetValue().FormatISODate().split('-'))
+                enddate = map(int, date_dlg.endDatePicker.GetValue().FormatISODate().split('-'))
+                startdate = pandas.Timestamp(*startdate)
+                enddate = pandas.Timestamp(*enddate)
+            else:
+                startdate = None
+                enddate = None
+
+        thread = Thread(target=self.convert_to_flat, args=(self.dbengine, startdate, enddate))
         thread.start()
         with NotificationBox(self, caption='Export Data',
                              message='Preparing data to export...'
@@ -909,55 +924,44 @@ class MainWindow(wx.Frame):
                              "Export failed.",
                              wx.OK).ShowModal()
 
-        date_dlg = DateRangeFieldList(self)
-
         for colname in self.field_attr.columns:
             column = self.field_attr.get_column(colname)
             if column['keep'] and column['date']:
                 date_column = colname
 
         df = self.flat_dataframe
-
-        if date_dlg.ShowModal() == wx.ID_OK:
-            if not date_dlg.all.IsChecked():
-                startdate = map(int, date_dlg.startDatePicker.GetValue().FormatISODate().split('-'))
-                enddate = map(int, date_dlg.endDatePicker.GetValue().FormatISODate().split('-'))
-                startdate = pandas.Timestamp(*startdate)
-                enddate = pandas.Timestamp(*enddate)
-                self.flat_dataframe = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
-
-            with wx.FileDialog(None, "Choose an SQLite data file",
-                               wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
-                               style=style) \
-                    as fileDialog:
-                if fileDialog.ShowModal() == wx.ID_CANCEL:
-                    return
-                else:
-                    dw_filepath = fileDialog.GetPath()
-            if dw_filepath:
-                dwengine = sa.create_engine('sqlite:///{}'.format(dw_filepath))
-
-            try:
-                self.flat_dataframe.to_sql('facts', con=dwengine, if_exists='replace', index=False)
-            except IOError:
-                wx.MessageDialog(self, "Error occurred while saving the data to the database.",
-                                 "Failed to save the data.",
-                                 wx.OK).ShowModal()
+        with wx.FileDialog(None, "Choose an SQLite data file",
+                            wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
+                            style=style) \
+                as fileDialog:
+            if fileDialog.ShowModal() == wx.ID_CANCEL:
                 return
+            else:
+                dw_filepath = fileDialog.GetPath()
+        if dw_filepath:
+            dwengine = sa.create_engine('sqlite:///{}'.format(dw_filepath))
 
-            metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
+        try:
+            self.flat_dataframe.to_sql('facts', con=dwengine, if_exists='replace', index=False)
+        except IOError:
+            wx.MessageDialog(self, "Error occurred while saving the data to the database.",
+                                "Failed to save the data.",
+                                wx.OK).ShowModal()
+            return
 
-            try:
-                metadata.to_sql('metadata', con=dwengine, if_exists='replace', index=False)
-            except IOError:
-                wx.MessageDialog(self, "Error occurred while saving the metadata to the database.",
-                                 "Failed to save the metadata.",
-                                 wx.OK).ShowModal()
-                return
+        metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
 
-            wx.MessageDialog(self, "Data have been exported to the database.",
-                             "Finished.",
-                             wx.OK).ShowModal()
+        try:
+            metadata.to_sql('metadata', con=dwengine, if_exists='replace', index=False)
+        except IOError:
+            wx.MessageDialog(self, "Error occurred while saving the metadata to the database.",
+                                "Failed to save the metadata.",
+                                wx.OK).ShowModal()
+            return
+
+        wx.MessageDialog(self, "Data have been exported to the database.",
+                            "Finished.",
+                            wx.OK).ShowModal()
 
     def onSaveToDatabaseMenuItemClick(self, event, action='replace'):
         if not self.profile_filepath:
@@ -1063,7 +1067,6 @@ class MainWindow(wx.Frame):
                 rf = pandas.read_sql_table('records', con=self.dbengine)
                 df = pandas.read_sql_table('drugs', con=self.dbengine)
                 joined = rf.join(df.pivot(columns='drug')['sensitivity'])
-                print(joined.head())
             except ValueError:
                 return wx.MessageBox(caption='Database Error',
                             message='Database schema not valid. The "Data" table not available.')
@@ -1148,15 +1151,11 @@ class MainWindow(wx.Frame):
                     return
 
             date_column = None
-            dup_keys = []
-            # need refactoring
             for column in profile['data']:
                 if profile['data'][column]['date'] and \
                         profile['data'][column]['keep']:
                     date_column = profile['data'][column]['alias']
-                elif profile['data'][column]['key'] and \
-                        profile['data'][column]['keep']:
-                    dup_keys.append(column)
+                    break
 
             try:
                 fact_table = sa.Table('facts', dwmeta, autoload=True, autoload_with=dwengine)
@@ -1196,10 +1195,10 @@ class MainWindow(wx.Frame):
                         if not dlg.all.IsChecked():
                             startdate = map(int, dlg.startDatePicker.GetValue().FormatISODate().split('-'))
                             enddate = map(int, dlg.endDatePicker.GetValue().FormatISODate().split('-'))
-                            #startdate = pandas.Timestamp(*startdate)
-                            #enddate = pandas.Timestamp(*enddate)
+                            startdate = pandas.Timestamp(*startdate)
+                            enddate = pandas.Timestamp(*enddate)
                             #df_filter = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
-                            s = s.where(sa.and_(fact_table.c.DATE>=startdate, fact_table.c.DATE<=enddate))
+                            s = s.where(sa.and_(fact_table.c[date_column]>=startdate, fact_table.c[date_column]<=enddate))
                             info['startdate'] = [startdate]
                             info['enddate'] = [enddate]
 
@@ -1292,7 +1291,7 @@ class MainWindow(wx.Frame):
 
 
     def onBiogramDatasetMenuItemClick(self, event):
-        thread = Thread(target=self.convert_to_flat)
+        thread = Thread(target=self.convert_to_flat, args=(self.dbengine,))
         thread.start()
         with NotificationBox(self, caption='Generating Antibiogram',
                              message='Preparing data...') as nd:
