@@ -990,7 +990,25 @@ class MainWindow(wx.Frame):
             self.dbfile_lbl.SetLabelText('Database filepath {} CONNECTED'.format(self.db_filepath))
             self.dbengine = sa.create_engine('sqlite:///{}'.format(self.db_filepath))
             try:
-                self.data_grid.table.df.to_sql('data', con=self.dbengine, index=False, if_exists=action)
+                records_df = pandas.read_sql_table('records', con=self.dbengine)
+            except ValueError:
+                sur_key_start = 0
+            else:
+                sur_key_start = len(records_df)
+            # add surrogate keys
+            sur_keys = range(sur_key_start, len(self.data_grid.table.df))
+            self.data_grid.table.df['sur_key'] = sur_keys
+            # split data into records and drugs
+            rec_columns = [c for c in self.field_attr.columns if self.field_attr.data[c]['drug'] == False] + ['sur_key']
+            drug_columns = [c for c in self.field_attr.columns if self.field_attr.data[c]['drug'] == True] + ['sur_key']
+            records_frame = self.data_grid.table.df[rec_columns]
+            drugs_frame = self.data_grid.table.df[drug_columns]
+            drugs_frame = drugs_frame.set_index('sur_key').stack().reset_index().rename(columns={'level_1': 'drug', 0: 'sensitivity'})
+            # save records into records table
+            # stack drug data using surrogate keys and reset the indexes then rename columns and save to drugs table
+            try:
+                records_frame.to_sql('records', con=self.dbengine, index=False, if_exists=action)
+                drugs_frame.to_sql('drugs', con=self.dbengine, index=False, if_exists=action)
                 metadata.to_sql('metadata', con=self.dbengine, if_exists='replace', index=False)
             except:
                 with wx.MessageDialog(None, message='Failed to save data to the database.',
@@ -1042,7 +1060,10 @@ class MainWindow(wx.Frame):
             self.dbfile_lbl.SetLabelText('Database filepath: {} CONNECTED'.format(self.db_filepath))
             self.dbengine = sa.create_engine('sqlite:///{}'.format(self.db_filepath))
             try:
-                df = pandas.read_sql_table('data', con=self.dbengine)
+                rf = pandas.read_sql_table('records', con=self.dbengine)
+                df = pandas.read_sql_table('drugs', con=self.dbengine)
+                joined = rf.join(df.pivot(columns='drug')['sensitivity'])
+                print(joined.head())
             except ValueError:
                 return wx.MessageBox(caption='Database Error',
                             message='Database schema not valid. The "Data" table not available.')
@@ -1052,11 +1073,13 @@ class MainWindow(wx.Frame):
             self.data_grid_box_sizer.Remove(0)
             self.data_grid.Destroy()
             self.data_grid = DataGrid(self.preview_panel)
-            self.data_grid.set_table(df)
+            col_ = list(joined.columns)
+            col_.remove('sur_key')
+            self.data_grid.set_table(joined[col_])
             self.data_grid.AutoSizeColumns()
             self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND | wx.ALL)
             self.data_grid_box_sizer.Layout()  # repaint the sizer
-            self.field_attr.update_from_dataframe(df)
+            self.field_attr.update_from_dataframe(joined[col_])
             self.field_attr_list.ClearAll()
             self.refresh_field_attr_list_column()
             if self.field_attr.columns:
