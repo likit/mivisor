@@ -187,7 +187,7 @@ class MainWindow(wx.Frame):
         self.version_no = '2019.1'
         self.description = 'A user-friendly program for microbiological laboratory data management.'
         self.SetTitle('Mivisor Version {}'.format(self.version_no))
-        self.SetSize((int(scr_width * 0.9), int(scr_height * 0.9)))
+        self.SetSize((int(scr_width * 0.80), int(scr_height * 0.70)))
         self.Center()
 
         self.current_column = None
