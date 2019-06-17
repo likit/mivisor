@@ -268,7 +268,7 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onDisconnectDbMenuItemClick, self.disconnectDbMenuItem)
         self.Bind(wx.EVT_MENU, lambda x: self.onSaveToDatabaseMenuItemClick(x, action='replace'),
                   self.saveToDatabaseMenuItem)
-        self.Bind(wx.EVT_MENU, lambda x: self.onSaveToDatabaseMenuItemClick(x, action='append'),
+        self.Bind(wx.EVT_MENU, lambda x: self.onAppendToDatabaseMenuItemClick(x, action='append'),
                   self.appendToDatabaseMenuItem)
 
         menubar.Append(fileMenu, '&File')
@@ -611,8 +611,6 @@ class MainWindow(wx.Frame):
             self.saveProfileItem.Enable(True)
             self.loadProfileItem.Enable(True)
             self.organismItem.Enable(True)
-            self.exportToExcelMenuItem.Enable(True)
-            self.saveToSQLiteMenuItem.Enable(True)
             self.biogramDatasetMenuItem.Enable(True)
             self.loadProfileItem.Enable(True)
             self.createFieldItem.Enable(True)
@@ -848,13 +846,23 @@ class MainWindow(wx.Frame):
             else:
                 output_filepath = file_dlg.GetPath()
 
-        thread = Thread(target=self.convert_to_flat, args=(self.dbengine,))
+        date_dlg = DateRangeFieldList(self)
+
+        if date_dlg.ShowModal() == wx.ID_OK:
+            if not date_dlg.all.IsChecked():
+                startdate = map(int, date_dlg.startDatePicker.GetValue().FormatISODate().split('-'))
+                enddate = map(int, date_dlg.endDatePicker.GetValue().FormatISODate().split('-'))
+                startdate = pandas.Timestamp(*startdate)
+                enddate = pandas.Timestamp(*enddate)
+            else:
+                startdate = None
+                enddate = None
+
+        thread = Thread(target=self.convert_to_flat, args=(self.dbengine, startdate, enddate))
         thread.start()
         with NotificationBox(self, caption='Export Data',
                              message='Preparing data to export...') as nd:
             result = nd.ShowModal()
-
-        date_dlg = DateRangeFieldList(self)
 
         for colname in self.field_attr.columns:
             column = self.field_attr.get_column(colname)
@@ -863,30 +871,22 @@ class MainWindow(wx.Frame):
 
         df = self.flat_dataframe
 
-        if date_dlg.ShowModal() == wx.ID_OK:
-            if not date_dlg.all.IsChecked():
-                startdate = map(int, date_dlg.startDatePicker.GetValue().FormatISODate().split('-'))
-                enddate = map(int, date_dlg.endDatePicker.GetValue().FormatISODate().split('-'))
-                startdate = pandas.Timestamp(*startdate)
-                enddate = pandas.Timestamp(*enddate)
-                self.flat_dataframe = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
-
-            try:
-                self.flat_dataframe.to_excel(output_filepath, engine='xlsxwriter')
-            except:
-                with wx.MessageDialog(self,
-                                      "Cannot save data to the output file.",
-                                      "Export failed.",
-                                      wx.OK) as md:
-                    md.ShowModal()
-                return
-            else:
-                with wx.MessageDialog(None,
-                                      "Data have been export to Excel as a flat table.",
-                                      "Export succeeds.",
-                                      wx.OK) as md:
-                    md.ShowModal()
-                return
+        try:
+            self.flat_dataframe.to_excel(output_filepath, engine='xlsxwriter')
+        except:
+            with wx.MessageDialog(self,
+                                    "Cannot save data to the output file.",
+                                    "Export failed.",
+                                    wx.OK) as md:
+                md.ShowModal()
+            return
+        else:
+            with wx.MessageDialog(None,
+                                    "Data have been export to Excel as a flat table.",
+                                    "Export succeeds.",
+                                    wx.OK) as md:
+                md.ShowModal()
+            return
 
     def onExportToSQLiteMenuItemClick(self, event, action='replace'):
         style = wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT
@@ -909,20 +909,26 @@ class MainWindow(wx.Frame):
                 startdate = None
                 enddate = None
 
-        thread = Thread(target=self.convert_to_flat, args=(self.dbengine, startdate, enddate))
-        thread.start()
-        with NotificationBox(self, caption='Export Data',
-                             message='Preparing data to export...'
-                             ) as nd:
-            result = nd.ShowModal()
-        if result == 1:
-            wx.MessageDialog(None, "Could not save data to the database.",
-                             "Export failed.",
-                             wx.OK).ShowModal()
-        if result == 2:
-            wx.MessageDialog(None, "Could not save the profile data to the database.",
-                             "Export failed.",
-                             wx.OK).ShowModal()
+        if self.dbengine:
+            thread = Thread(target=self.convert_to_flat, args=(self.dbengine, startdate, enddate))
+            thread.start()
+            with NotificationBox(self, caption='Export Data',
+                                message='Preparing data to export...'
+                                ) as nd:
+                result = nd.ShowModal()
+            if result == 1:
+                wx.MessageDialog(None, "Could not save data to the database.",
+                                "Export failed.",
+                                wx.OK).ShowModal()
+            if result == 2:
+                wx.MessageDialog(None, "Could not save the profile data to the database.",
+                                "Export failed.",
+                                wx.OK).ShowModal()
+        else:
+            wx.MessageDialog(None, "Please first save data to the database.",
+                            "Export failed.",
+                            wx.OK).ShowModal()
+            return
 
         for colname in self.field_attr.columns:
             column = self.field_attr.get_column(colname)
