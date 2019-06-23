@@ -1096,7 +1096,8 @@ class MainWindow(wx.Frame):
             try:
                 rf = pandas.read_sql_table('records', con=self.dbengine)
                 df = pandas.read_sql_table('drugs', con=self.dbengine)
-                joined = rf.join(df.pivot(columns='drug')['sensitivity'])
+                df_pivot = df.pivot(index='sur_key', columns='drug', values='sensitivity')
+                joined = rf.join(df_pivot)
             except ValueError:
                 return wx.MessageBox(caption='Database Error',
                             message='Database schema not valid. The "Data" table not available.')
