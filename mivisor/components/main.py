@@ -999,21 +999,32 @@ class MainWindow(wx.Frame):
             metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
             self.dbfile_lbl.SetLabelText('Database filepath {} CONNECTED'.format(self.db_filepath))
             self.dbengine = sa.create_engine('sqlite:///{}'.format(self.db_filepath))
+
+            # add surrogate keys
             try:
                 records_df = pandas.read_sql_table('records', con=self.dbengine)
             except ValueError:
                 sur_key_start = 0
             else:
                 sur_key_start = len(records_df)
-            # add surrogate keys
-            sur_keys = range(sur_key_start, len(self.data_grid.table.df))
+
+            # generate surrogate keys based on existing records
+            if action == 'append':
+                sur_keys = range(sur_key_start, len(self.data_grid.table.df))
+            else:
+                sur_keys = range(0, len(self.data_grid.table.df))
+
             self.data_grid.table.df['sur_key'] = sur_keys
+
             # split data into records and drugs
-            rec_columns = [c for c in self.field_attr.columns if self.field_attr.data[c]['drug'] == False] + ['sur_key']
-            drug_columns = [c for c in self.field_attr.columns if self.field_attr.data[c]['drug'] == True] + ['sur_key']
+            rec_columns = [c for c in self.field_attr.columns
+                           if self.field_attr.data[c]['drug'] is False] + ['sur_key']
+            drug_columns = [c for c in self.field_attr.columns
+                            if self.field_attr.data[c]['drug'] is True] + ['sur_key']
             records_frame = self.data_grid.table.df[rec_columns]
             drugs_frame = self.data_grid.table.df[drug_columns]
-            drugs_frame = drugs_frame.set_index('sur_key').stack().reset_index().rename(columns={'level_1': 'drug', 0: 'sensitivity'})
+            drugs_frame = drugs_frame.set_index('sur_key')\
+                .stack().reset_index().rename(columns={'level_1': 'drug', 0: 'sensitivity'})
             # save records into records table
             # stack drug data using surrogate keys and reset the indexes then rename columns and save to drugs table
             try:
@@ -1031,6 +1042,7 @@ class MainWindow(wx.Frame):
                     msgDialog.ShowModal()
 
     def on_drug_reg_menu_click(self, event):
+        global drug_df
         # TODO: drug table should be sortable by all columns
         drug_filepath = os.path.join(APPDATA_DIR, DRUG_REGISTRY_FILE)
         dr = DrugRegFormDialog()
@@ -1040,6 +1052,7 @@ class MainWindow(wx.Frame):
         # TODO: values not saved until the cell is unfocused
         if resp == wx.ID_OK:
             dr.grid.table.df.to_json(drug_filepath)
+            drug_df = dr.grid.table.df.copy()
 
     def on_about_menu_click(self, event):
         info = wx.adv.AboutDialogInfo()
