@@ -1040,6 +1040,8 @@ class MainWindow(wx.Frame):
                 with wx.MessageDialog(None, message='Data have been saved to the database file.', caption='Finished.',
                                       style=wx.OK | wx.CENTER) as msgDialog:
                     msgDialog.ShowModal()
+                self.exportToExcelMenuItem.Enable(True)
+                self.saveToSQLiteMenuItem.Enable(True)
 
     def on_drug_reg_menu_click(self, event):
         global drug_df
