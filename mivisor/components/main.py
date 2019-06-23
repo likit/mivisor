@@ -1,6 +1,5 @@
 import os
 import pandas
-import numpy
 import sqlalchemy as sa
 import xlrd
 import json
@@ -295,6 +294,7 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnLoadProfile, self.loadProfileItem)
         self.Bind(wx.EVT_MENU, self.OnOrganismClick, self.organismItem)
 
+        # TODO: rename OnExportRawData method
         self.Bind(wx.EVT_MENU, self.OnExportRawData, self.exportToExcelMenuItem)
         self.Bind(wx.EVT_MENU, lambda x: self.onExportToSQLiteMenuItemClick(x, action='replace'),
                   self.saveToSQLiteMenuItem)
@@ -753,14 +753,14 @@ class MainWindow(wx.Frame):
         self.field_attr_list.Select(col_index)
         self.field_attr_list.Focus(col_index)
 
-    def convert_to_flat(self, engine, startdate, enddate):
+    def convert_to_flat(self, engine, startdate, enddate, deduplicate=True):
         info_columns = []
         dup_keys = []
         organism_column = None
         for colname in self.field_attr.columns:
             column = self.field_attr.get_column(colname)
             if column['keep']:
-                if column['key'] and not column['organism'] and not column['drug']:
+                if column['key'] and not column['organism'] and not column['drug'] and deduplicate:
                     dup_keys.append(colname)
                 if column['organism']:
                     organism_column = column
@@ -775,14 +775,6 @@ class MainWindow(wx.Frame):
         if not organism_column:
             with wx.MessageDialog(self,
                                   "Please specify the organism column.",
-                                  "Export failed.",
-                                  wx.OK) as md:
-                md.ShowModal()
-            return
-
-        if not dup_keys:
-            with wx.MessageDialog(self,
-                                  "Please specify some key columns.",
                                   "Export failed.",
                                   wx.OK) as md:
                 md.ShowModal()
@@ -817,19 +809,34 @@ class MainWindow(wx.Frame):
 
         exported_data = pandas.DataFrame(dict_)
 
+        if deduplicate:
+            if not dup_keys:
+                with wx.MessageDialog(self,
+                                      "Please specify some key columns.",
+                                      "Export failed.",
+                                      wx.OK) as md:
+                    md.ShowModal()
+                return
+            else:
+                #TODO: inform user about error in deduplication if no date was found..
+                dup_keys.append('organism_name')
+                # dup_keys.append('drug')
+                if dup_keys and date_column:
+                    exported_data = exported_data.sort_values(by=date_column)
+                    exported_data = exported_data.drop_duplicates(
+                        subset=dup_keys, keep='first'
+                    )
+                else:
+                    with wx.MessageDialog(self,
+                                          "Please specify a date column.",
+                                          "Export failed.",
+                                          wx.OK) as md:
+                        md.ShowModal()
+                    wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=1)
+
         df['drugGroup'] = df['drug'].apply(lambda x: get_drug_group(x))
         self.flat_dataframe = exported_data.merge(df, on='sur_key', how='outer')
         del self.flat_dataframe['sur_key']  # remove surrogate key column
-
-        #TODO: inform user about error in deduplication if no date was found..
-        #TODO: ask whether users want to deduplicate or not
-        dup_keys.append('organism_name')
-        dup_keys.append('drug')
-        if dup_keys and date_column:
-            self.flat_dataframe = self.flat_dataframe.sort_values(by=date_column)
-            self.flat_dataframe = self.flat_dataframe.drop_duplicates(
-                subset=dup_keys, keep='first'
-            )
 
         if startdate and enddate:
             self.flat_dataframe = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
@@ -849,6 +856,7 @@ class MainWindow(wx.Frame):
         date_dlg = DateRangeFieldList(self)
 
         if date_dlg.ShowModal() == wx.ID_OK:
+            deduplicate = date_dlg.deduplicate.IsChecked()
             if not date_dlg.all.IsChecked():
                 startdate = map(int, date_dlg.startDatePicker.GetValue().FormatISODate().split('-'))
                 enddate = map(int, date_dlg.endDatePicker.GetValue().FormatISODate().split('-'))
@@ -858,7 +866,7 @@ class MainWindow(wx.Frame):
                 startdate = None
                 enddate = None
 
-        thread = Thread(target=self.convert_to_flat, args=(self.dbengine, startdate, enddate))
+        thread = Thread(target=self.convert_to_flat, args=(self.dbengine, startdate, enddate, deduplicate))
         thread.start()
         with NotificationBox(self, caption='Export Data',
                              message='Preparing data to export...') as nd:
@@ -872,7 +880,7 @@ class MainWindow(wx.Frame):
         df = self.flat_dataframe
 
         try:
-            self.flat_dataframe.to_excel(output_filepath, engine='xlsxwriter')
+            self.flat_dataframe.to_excel(output_filepath, engine='xlsxwriter', index=False)
         except:
             with wx.MessageDialog(self,
                                     "Cannot save data to the output file.",
@@ -900,6 +908,7 @@ class MainWindow(wx.Frame):
         date_dlg = DateRangeFieldList(self)
 
         if date_dlg.ShowModal() == wx.ID_OK:
+            deduplicate = date_dlg.deduplicate.IsChecked()
             if not date_dlg.all.IsChecked():
                 startdate = map(int, date_dlg.startDatePicker.GetValue().FormatISODate().split('-'))
                 enddate = map(int, date_dlg.endDatePicker.GetValue().FormatISODate().split('-'))
@@ -910,7 +919,7 @@ class MainWindow(wx.Frame):
                 enddate = None
 
         if self.dbengine:
-            thread = Thread(target=self.convert_to_flat, args=(self.dbengine, startdate, enddate))
+            thread = Thread(target=self.convert_to_flat, args=(self.dbengine, startdate, enddate, deduplicate))
             thread.start()
             with NotificationBox(self, caption='Export Data',
                                 message='Preparing data to export...'
