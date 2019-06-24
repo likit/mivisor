@@ -534,7 +534,7 @@ class MainWindow(wx.Frame):
 
     def OnSaveProfile(self, event):
         wildcard = "JSON (*.json)|*.json"
-        with wx.FileDialog(None, "Choose a file", os.getcwd(),
+        with wx.FileDialog(None, "Choose a file to save a profile.", os.getcwd(),
                            "", wildcard, wx.FC_SAVE) as file_dlg:
             if file_dlg.ShowModal() == wx.ID_CANCEL:
                 return
@@ -709,6 +709,8 @@ class MainWindow(wx.Frame):
                     }
                 }
                 self.refresh_field_attr_list_column()
+            self.OnSaveProfile(None)
+            self.onSaveToDatabaseMenuItemClick(None)
 
     def reset_summary_table(self, desc):
         self.summary_table.ClearAll()
