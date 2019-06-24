@@ -474,7 +474,6 @@ class MainWindow(wx.Frame):
             if self.field_attr.is_col_aggregate(c):
                 column = self.field_attr.get_column(c)
                 column_index = self.field_attr.get_col_index(c)
-                print(column['name'], column_index)
                 if c not in df.columns:
                     d = []
                     from_col = column['aggregate']['from']
@@ -512,7 +511,6 @@ class MainWindow(wx.Frame):
 
                 for c in self.field_attr.columns:
                     if self.field_attr.is_col_aggregate(c):
-                        print(c)
                         column = self.field_attr.get_column(c)
                         column_index = self.field_attr.get_col_index(c)
                         if c not in self.data_grid.table.df.columns:
@@ -522,9 +520,8 @@ class MainWindow(wx.Frame):
                             for value in self.data_grid.table.df[from_col]:
                                 d.append(dict_.get(value, value))
                             self.data_grid.table.df.insert(column_index, c, value=d)
-                        print(self.data_grid.table.df.head(2))
+                            self.data_grid.table.InsertCols(column_index, 1)
 
-                self.data_grid.ForceRefresh()
                 self.refresh_field_attr_list_column()
                 self.update_edit_panel(self.field_attr.iget_column(0))
                 self.profile_filepath = file_dlg.GetPath()
