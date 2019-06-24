@@ -56,6 +56,9 @@ class FieldAttribute():
         self.organisms = {}
 
     def update_from_json(self, json_data):
+        if not self.columns:
+            return False
+
         json_data = json.loads(json_data)
         profile_cols = json_data['columns']
         profile_cols_no_agg = [col for col in profile_cols if not col.startswith('@')]
@@ -63,18 +66,32 @@ class FieldAttribute():
                 set(profile_cols_no_agg).difference(set(self.columns)):
             return False
         else:
-            self.columns = profile_cols
+            #self.columns = profile_cols
             self.data = json_data['data']
             self.organisms = json_data['organisms']
             return True
 
     def update_from_json_for_database(self, json_data):
+        """
+        Update columns with data from the saved profile
+        :param json_data:
+        :return: Boolean
+        """
+        # Data must be loaded first
+        if not self.columns:
+            return False
+
         json_data = json.loads(json_data)
         profile_cols = json_data['columns']
+
+        # columns must match
+        assert len(set(profile_cols).difference(set(self.columns))) == 0
+
         profile_cols_no_agg = [col for col in profile_cols if not col.startswith('@')]
         self.columns = profile_cols
         self.data = json_data['data']
         self.organisms = json_data['organisms']
+
         return True
 
     def update_from_dataframe(self, data_frame):
@@ -267,7 +284,7 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.onDisconnectDbMenuItemClick, self.disconnectDbMenuItem)
         self.Bind(wx.EVT_MENU, lambda x: self.onSaveToDatabaseMenuItemClick(x, action='replace'),
                   self.saveToDatabaseMenuItem)
-        self.Bind(wx.EVT_MENU, lambda x: self.onAppendToDatabaseMenuItemClick(x, action='append'),
+        self.Bind(wx.EVT_MENU, lambda x: self.onSaveToDatabaseMenuItemClick(x, action='append'),
                   self.appendToDatabaseMenuItem)
 
         menubar.Append(fileMenu, '&File')
@@ -520,6 +537,8 @@ class MainWindow(wx.Frame):
                 return
             try:
                 fp = open(file_dlg.GetPath(), 'w')
+                for col in self.field_attr.columns:
+                    column = self.field_attr.get_column(col)
                 fp.write(json.dumps({'data': self.field_attr.data,
                                      'columns': self.field_attr.columns,
                                      'organisms': self.field_attr.organisms},
@@ -785,14 +804,14 @@ class MainWindow(wx.Frame):
 
         dict_ = {}
         for column in info_columns:
-            dict_[column['alias']] = rf[column['name']]
+            dict_[column['alias']] = self.data_grid.table.df[column['name']]
 
         dict_['sur_key'] = rf['sur_key']
 
         genuses = []
         species = []
         organisms = []
-        for org in rf[organism_column['name']]:
+        for org in self.data_grid.table.df[organism_column['name']]:
             organisms.append(org)
             org_item = self.field_attr.organisms.get(org, {'genus': org, 'species': org})
             genuses.append(org_item.get('genus', org))
@@ -839,7 +858,11 @@ class MainWindow(wx.Frame):
         del self.flat_dataframe['sur_key']  # remove surrogate key column
 
         if startdate and enddate:
-            self.flat_dataframe = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
+            try:
+                self.flat_dataframe = self.flat_dataframe[
+                    (self.flat_dataframe[date_column] >= startdate) & (self.flat_dataframe[date_column] <= enddate)]
+            except TypeError:
+                wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=1)
 
         wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=0)
 
@@ -986,7 +1009,7 @@ class MainWindow(wx.Frame):
                 msgDialog.ShowModal()
             return
 
-        if not self.dbengine:
+        if action == 'append' or not self.dbengine:
             with wx.FileDialog(None, "Choose or specify a database file",
                                wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
                                style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) \
@@ -997,13 +1020,23 @@ class MainWindow(wx.Frame):
                     self.db_filepath = fileDialog.GetPath()
 
         if self.db_filepath:
-            with wx.MessageDialog(None,
-                                  "Are you sure you want to write to {}".format(self.db_filepath),
-                                  "Database is about to be overwritten.",
-                                  wx.OK | wx.CANCEL) as msgDialog:
-                ret = msgDialog.ShowModal()
-                if ret == wx.ID_CANCEL:
-                    return
+            if action == 'replace':
+                with wx.MessageDialog(None,
+                                      "Are you sure you want to write to {}".format(self.db_filepath),
+                                      "Database is about to be overwritten.",
+                                      wx.OK | wx.CANCEL) as msgDialog:
+                    ret = msgDialog.ShowModal()
+                    if ret == wx.ID_CANCEL:
+                        return
+
+            elif action == 'append':
+                with wx.MessageDialog(None,
+                                      "Are you sure you want to write to {}".format(self.db_filepath),
+                                      "Database is about to be modified.",
+                                      wx.OK | wx.CANCEL) as msgDialog:
+                    ret = msgDialog.ShowModal()
+                    if ret == wx.ID_CANCEL:
+                        return
 
             metadata = pandas.DataFrame({'profile': [self.profile_filepath], 'updatedAt': [datetime.utcnow()]})
             self.dbfile_lbl.SetLabelText('Database filepath {} CONNECTED'.format(self.db_filepath))
@@ -1019,7 +1052,7 @@ class MainWindow(wx.Frame):
 
             # generate surrogate keys based on existing records
             if action == 'append':
-                sur_keys = range(sur_key_start, len(self.data_grid.table.df))
+                sur_keys = range(sur_key_start, sur_key_start + len(self.data_grid.table.df))
             else:
                 sur_keys = range(0, len(self.data_grid.table.df))
 
