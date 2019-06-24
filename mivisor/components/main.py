@@ -1055,6 +1055,17 @@ class MainWindow(wx.Frame):
 
             # generate surrogate keys based on existing records
             if action == 'append':
+                db_metadata = pandas.read_sql_table('metadata', con=self.dbengine)
+                db_profile_filepath = db_metadata.tail(1)['profile'].tolist()[0]
+                if db_profile_filepath != self.profile_filepath:
+                    with wx.MessageDialog(None,
+                                          "Cannot tell whether the data structure is compatible."
+                                          "\nPlease use the same profile.".format(self.db_filepath),
+                                          "Check database schema.",
+                                          wx.OK | wx.CANCEL) as msgDialog:
+                        ret = msgDialog.ShowModal()
+                        return
+
                 sur_keys = range(sur_key_start, sur_key_start + len(self.data_grid.table.df))
             else:
                 sur_keys = range(0, len(self.data_grid.table.df))
