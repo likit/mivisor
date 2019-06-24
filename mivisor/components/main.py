@@ -66,7 +66,7 @@ class FieldAttribute():
                 set(profile_cols_no_agg).difference(set(self.columns)):
             return False
         else:
-            #self.columns = profile_cols
+            self.columns = profile_cols
             self.data = json_data['data']
             self.organisms = json_data['organisms']
             return True
@@ -85,9 +85,9 @@ class FieldAttribute():
         profile_cols = json_data['columns']
 
         # columns must match
-        assert len(set(profile_cols).difference(set(self.columns))) == 0
-
         profile_cols_no_agg = [col for col in profile_cols if not col.startswith('@')]
+        assert len(set(profile_cols_no_agg).difference(set(self.columns))) == 0
+
         self.columns = profile_cols
         self.data = json_data['data']
         self.organisms = json_data['organisms']
@@ -450,7 +450,7 @@ class MainWindow(wx.Frame):
             resp = fc.ShowModal()
             self.field_attr.update_organisms(fc.grid.table.df)
 
-    def load_profile_from_filepath(self):
+    def load_profile_from_filepath(self, df):
         try:
             fp = open(self.profile_filepath, 'r')
         except IOError:
@@ -474,16 +474,16 @@ class MainWindow(wx.Frame):
             if self.field_attr.is_col_aggregate(c):
                 column = self.field_attr.get_column(c)
                 column_index = self.field_attr.get_col_index(c)
-                if c not in self.data_grid.table.df.columns:
+                print(column['name'], column_index)
+                if c not in df.columns:
                     d = []
                     from_col = column['aggregate']['from']
                     dict_ = column['aggregate']['data']
-                    for value in self.data_grid.table.df[from_col]:
+                    for value in df[from_col]:
                         d.append(dict_.get(value, value))
-                    self.data_grid.table.df.insert(column_index, c, value=d)
-        self.data_grid.ForceRefresh()
-        self.refresh_field_attr_list_column()
-        self.update_edit_panel()
+                    df.insert(column_index, c, value=d)
+
+        return df
 
     def OnLoadProfile(self, event):
         if not self.data_filepath:
@@ -512,6 +512,7 @@ class MainWindow(wx.Frame):
 
                 for c in self.field_attr.columns:
                     if self.field_attr.is_col_aggregate(c):
+                        print(c)
                         column = self.field_attr.get_column(c)
                         column_index = self.field_attr.get_col_index(c)
                         if c not in self.data_grid.table.df.columns:
@@ -521,9 +522,11 @@ class MainWindow(wx.Frame):
                             for value in self.data_grid.table.df[from_col]:
                                 d.append(dict_.get(value, value))
                             self.data_grid.table.df.insert(column_index, c, value=d)
+                        print(self.data_grid.table.df.head(2))
+
                 self.data_grid.ForceRefresh()
                 self.refresh_field_attr_list_column()
-                self.update_edit_panel()
+                self.update_edit_panel(self.field_attr.iget_column(0))
                 self.profile_filepath = file_dlg.GetPath()
                 self.profile_lbl.SetLabelText("Profile filepath: {}".format(self.profile_filepath))
             except IOError:
@@ -715,20 +718,21 @@ class MainWindow(wx.Frame):
             self.summary_table.InsertItem(n, k)
             self.summary_table.SetItem(n, 1, str(desc[k]))
 
-    def update_edit_panel(self):
+    def update_edit_panel(self, colname):
         for cb in self.field_edit_checkboxes:
             name = cb.GetName()
-            cb.SetValue(self.field_attr.get_column(self.current_column)[name])
+            cb.SetValue(self.field_attr.get_column(colname)[name])
 
-        self.field_alias.SetValue(self.field_attr.get_column(self.current_column)['alias'])
-        self.field_desc.SetValue(self.field_attr.get_column(self.current_column)['desc'])
+        self.field_alias.SetValue(self.field_attr.get_column(colname)['alias'])
+        self.field_desc.SetValue(self.field_attr.get_column(colname)['desc'])
+        self.current_column = colname
 
     def onFieldAttrListItemSelected(self, evt):
         index = evt.GetIndex()
-        self.current_column = self.data_grid.table.df.columns[index]
+        current_column = self.data_grid.table.df.columns[index]
         desc = self.data_grid.table.df[self.current_column].describe()
         self.reset_summary_table(desc=desc)
-        self.update_edit_panel()
+        self.update_edit_panel(current_column)
         self.data_grid.SelectCol(index)
 
     def refresh_field_attr_list_column(self):
@@ -1056,11 +1060,14 @@ class MainWindow(wx.Frame):
             else:
                 sur_keys = range(0, len(self.data_grid.table.df))
 
+            # TODO: use .loc[row_indexer,col_indexer] = value instead
             self.data_grid.table.df['sur_key'] = sur_keys
 
             # split data into records and drugs
             rec_columns = [c for c in self.field_attr.columns
-                           if self.field_attr.data[c]['drug'] is False] + ['sur_key']
+                           if self.field_attr.data[c]['drug'] is False
+                           and not self.field_attr.is_col_aggregate(c)]
+            rec_columns += ['sur_key']
             drug_columns = [c for c in self.field_attr.columns
                             if self.field_attr.data[c]['drug'] is True] + ['sur_key']
             records_frame = self.data_grid.table.df[rec_columns]
@@ -1142,16 +1149,27 @@ class MainWindow(wx.Frame):
             self.data_grid = DataGrid(self.preview_panel)
             col_ = list(joined.columns)
             col_.remove('sur_key')
-            self.data_grid.set_table(joined[col_])
+            # temporarily set the table
+            self.field_attr.update_from_dataframe(joined[col_])
+
+            metadata = pandas.read_sql_table('metadata', con=self.dbengine)
+            self.profile_filepath = metadata.tail(1)['profile'].tolist()[0]
+            updated_joined = self.load_profile_from_filepath(joined[col_])
+            self.profile_lbl.SetLabelText("Profile filepath: {}".format(self.profile_filepath))
+
+            self.field_attr_list.ClearAll()
+            self.refresh_field_attr_list_column()
+            self.update_edit_panel(self.field_attr.iget_column(0))
+
+            self.data_grid.set_table(updated_joined)
             self.data_grid.AutoSizeColumns()
             self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND | wx.ALL)
             self.data_grid_box_sizer.Layout()  # repaint the sizer
-            self.field_attr.update_from_dataframe(joined[col_])
-            self.field_attr_list.ClearAll()
-            self.refresh_field_attr_list_column()
-            if self.field_attr.columns:
-                self.current_column = self.field_attr.iget_column(0)
-                self.field_attr_list.Select(0)
+
+            # onFieldAttrListItemSelected() requires columns from data_grid.table.df
+            # TODO: might need to refactor this code
+            self.field_attr_list.Select(0)
+
             self.saveProfileItem.Enable(True)
             self.loadProfileItem.Enable(True)
             self.organismItem.Enable(True)
@@ -1159,10 +1177,6 @@ class MainWindow(wx.Frame):
             self.exportToExcelMenuItem.Enable(True)
             self.saveToSQLiteMenuItem.Enable(True)
 
-            metadata = pandas.read_sql_table('metadata', con=self.dbengine)
-            self.profile_filepath = metadata.tail(1)['profile'].tolist()[0]
-            self.load_profile_from_filepath()
-            self.profile_lbl.SetLabelText("Profile filepath: {}".format(self.profile_filepath))
             self.saveToDatabaseMenuItem.Enable(True)
             self.appendToDatabaseMenuItem.Enable(True)
             self.createFieldItem.Enable(True)
