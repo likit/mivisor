@@ -275,7 +275,10 @@ class DateRangeFieldList(wx.Dialog):
         self.endDatePicker.Enable(False)
         self.all = wx.CheckBox(panel, id=wx.ID_ANY, label="Select all dates")
         self.all.SetValue(True)
+        self.deduplicate = wx.CheckBox(panel, id=wx.ID_ANY, label="Deduplicate using a key")
+        self.deduplicate.SetValue(True)
 
+        # TODO: refactor the method's name
         self.all.Bind(wx.EVT_CHECKBOX, self.onCheckboxChecked)
 
         nextButton = wx.Button(panel, wx.ID_OK, label="Next")
@@ -290,6 +293,7 @@ class DateRangeFieldList(wx.Dialog):
 
         gridbox = wx.GridSizer(2,2,2,2)
 
+        staticBoxSizer.Add(self.deduplicate, 0, wx.EXPAND | wx.ALL, 5)
         staticBoxSizer.Add(self.all, 0, wx.EXPAND | wx.ALL, 5)
         staticBoxSizer.Add(gridbox, 0, wx.EXPAND | wx.ALL, 5)
 
