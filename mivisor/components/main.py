@@ -494,7 +494,8 @@ class MainWindow(wx.Frame):
             return
 
         wildcard = "JSON (*.json)|*.json"
-        with wx.FileDialog(None, "Choose a file", os.getcwd(),
+        _profile_pth = self.data_filepath or os.getcwd()
+        with wx.FileDialog(None, "Choose a file", _profile_pth,
                            "", wildcard, wx.FC_OPEN) as file_dlg:
             if file_dlg.ShowModal() == wx.ID_CANCEL:
                 return
