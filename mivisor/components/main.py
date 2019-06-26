@@ -175,7 +175,7 @@ def show_sheets(parent, worksheets):
 class NotificationBox(wx.Dialog):
     def __init__(self, parent, caption, message):
         super(NotificationBox, self).__init__(parent=parent,
-                                              title=caption, size=(300, 80),
+                                              title=caption, size=(300, 90),
                                               style=wx.CAPTION)
         self.label = wx.StaticText(self, label=message)
         vsizer = wx.BoxSizer(wx.VERTICAL)
@@ -260,9 +260,11 @@ class MainWindow(wx.Frame):
         dataMenu.AppendSeparator()
 
         self.exportToExcelMenuItem = exportMenu.Append(wx.ID_ANY, 'To Excel')
-        self.saveToSQLiteMenuItem = exportMenu.Append(wx.ID_ANY, 'Save to SQLite')
+        self.saveToFlatDbMenuItem = exportMenu.Append(wx.ID_ANY, 'Create flat database')
+        self.addToFlatDbMenuItem = exportMenu.Append(wx.ID_ANY, 'Add to flat database')
         self.exportToExcelMenuItem.Enable(False)
-        self.saveToSQLiteMenuItem.Enable(False)
+        self.saveToFlatDbMenuItem.Enable(False)
+        self.addToFlatDbMenuItem.Enable(False)
         dataMenu.Append(wx.ID_ANY, 'Export flat table', exportMenu)
 
         drugRegMenuItem = registryMenu.Append(wx.ID_ANY, 'Drugs')
@@ -313,8 +315,10 @@ class MainWindow(wx.Frame):
 
         # TODO: rename OnExportRawData method
         self.Bind(wx.EVT_MENU, self.OnExportRawData, self.exportToExcelMenuItem)
-        self.Bind(wx.EVT_MENU, lambda x: self.onExportToSQLiteMenuItemClick(x, action='replace'),
-                  self.saveToSQLiteMenuItem)
+        self.Bind(wx.EVT_MENU, lambda x: self.onSaveToFlatDbMenuItemClick(x, action='replace'),
+                  self.saveToFlatDbMenuItem)
+        self.Bind(wx.EVT_MENU, lambda x: self.onSaveToFlatDbMenuItemClick(x, action='append'),
+                  self.addToFlatDbMenuItem)
 
         self.Bind(wx.EVT_MENU, self.on_drug_reg_menu_click, drugRegMenuItem)
 
@@ -858,7 +862,7 @@ class MainWindow(wx.Frame):
                     wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=1)
 
         df['drugGroup'] = df['drug'].apply(lambda x: get_drug_group(x))
-        self.flat_dataframe = exported_data.merge(df, on='sur_key', how='outer')
+        self.flat_dataframe = exported_data.merge(df, on='sur_key', how='inner')
         del self.flat_dataframe['sur_key']  # remove surrogate key column
 
         if startdate and enddate:
@@ -899,32 +903,41 @@ class MainWindow(wx.Frame):
                              message='Preparing data to export...') as nd:
             result = nd.ShowModal()
 
+        '''
         for colname in self.field_attr.columns:
             column = self.field_attr.get_column(colname)
             if column['keep'] and column['date']:
                 date_column = colname
+        '''
 
-        df = self.flat_dataframe
+        # df = self.flat_dataframe
+        def write_to_excel(flat_df, output_filepath):
+            try:
+                flat_df.to_excel(output_filepath, engine='xlsxwriter', index=False)
+            except:
+                with wx.MessageDialog(None,
+                                        "Cannot save data to the output file.",
+                                        "Export failed.",
+                                        wx.OK) as md:
+                    md.ShowModal()
+                wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=1)
+            else:
+                with wx.MessageDialog(None,
+                                        "Data have been export to Excel as a flat table.",
+                                        "Export succeeds.",
+                                        wx.OK) as md:
+                    md.ShowModal()
+                wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=0)
 
-        try:
-            self.flat_dataframe.to_excel(output_filepath, engine='xlsxwriter', index=False)
-        except:
-            with wx.MessageDialog(self,
-                                    "Cannot save data to the output file.",
-                                    "Export failed.",
-                                    wx.OK) as md:
-                md.ShowModal()
-            return
-        else:
-            with wx.MessageDialog(None,
-                                    "Data have been export to Excel as a flat table.",
-                                    "Export succeeds.",
-                                    wx.OK) as md:
-                md.ShowModal()
-            return
+        thread = Thread(target=write_to_excel, args=(self.flat_dataframe, output_filepath))
+        thread.start()
+        with NotificationBox(self, caption='Writing Data',
+                             message='Writing data to Excel file...') as nd:
+            result = nd.ShowModal()
 
-    def onExportToSQLiteMenuItemClick(self, event, action='replace'):
-        style = wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT
+
+    def onSaveToFlatDbMenuItemClick(self, event, action='replace'):
+        style = wx.FD_SAVE
         if not self.profile_filepath:
             wx.MessageDialog(None, "No profile path specified.",
                              "Please save a profile to a file or load a profile to the session before continue.",
@@ -966,12 +979,6 @@ class MainWindow(wx.Frame):
                             wx.OK).ShowModal()
             return
 
-        for colname in self.field_attr.columns:
-            column = self.field_attr.get_column(colname)
-            if column['keep'] and column['date']:
-                date_column = colname
-
-        df = self.flat_dataframe
         with wx.FileDialog(None, "Choose an SQLite data file",
                             wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
                             style=style) \
@@ -984,7 +991,8 @@ class MainWindow(wx.Frame):
             dwengine = sa.create_engine('sqlite:///{}'.format(dw_filepath))
 
         try:
-            self.flat_dataframe.to_sql('facts', con=dwengine, if_exists='replace', index=False)
+            self.flat_dataframe['added_at'] = datetime.utcnow()
+            self.flat_dataframe.to_sql('facts', con=dwengine, if_exists=action, index=False)
         except IOError:
             wx.MessageDialog(self, "Error occurred while saving the data to the database.",
                                 "Failed to save the data.",
@@ -1101,7 +1109,8 @@ class MainWindow(wx.Frame):
                                       style=wx.OK | wx.CENTER) as msgDialog:
                     msgDialog.ShowModal()
                 self.exportToExcelMenuItem.Enable(True)
-                self.saveToSQLiteMenuItem.Enable(True)
+                self.saveToFlatDbMenuItem.Enable(True)
+                self.addToFlatDbMenuItem.Enable(True)
 
     def on_drug_reg_menu_click(self, event):
         global drug_df
@@ -1186,7 +1195,8 @@ class MainWindow(wx.Frame):
             self.organismItem.Enable(True)
             self.biogramDatasetMenuItem.Enable(True)
             self.exportToExcelMenuItem.Enable(True)
-            self.saveToSQLiteMenuItem.Enable(True)
+            self.saveToFlatDbMenuItem.Enable(True)
+            self.addToFlatDbMenuItem.Enable(True)
 
             self.saveToDatabaseMenuItem.Enable(True)
             self.appendToDatabaseMenuItem.Enable(True)
@@ -1196,6 +1206,7 @@ class MainWindow(wx.Frame):
         if self.dbengine:
             self.dbengine = None
             self.dbfile_lbl.SetLabelText('Database filepath: NOT CONNECTED')
+            self.profile_lbl.SetLabelText('Profile filepath: None')
             #TODO: find out the better way to reset the data grid
             self.data_grid_box_sizer.Remove(0)
             self.data_grid.Destroy()
@@ -1204,6 +1215,8 @@ class MainWindow(wx.Frame):
             self.data_grid.AutoSizeColumns()
             self.data_grid_box_sizer.Add(self.data_grid, 1, flag=wx.EXPAND | wx.ALL)
             self.data_grid_box_sizer.Layout()  # repaint the sizer
+            self.saveToFlatDbMenuItem.Enable(False)
+            self.addToFlatDbMenuItem.Enable(False)
 
     def onBiogramDbMenuItemClick(self, event):
         dwengine = None
