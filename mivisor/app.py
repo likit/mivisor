@@ -1,4 +1,10 @@
 import wx
+import ctypes
+
+try:
+    ctypes.windll.shcore.SetProcessDpiAwareness(True)
+except:
+    pass
 
 from components.main import MainWindow
 
