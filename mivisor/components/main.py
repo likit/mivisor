@@ -270,8 +270,10 @@ class MainWindow(wx.Frame):
 
         drugRegMenuItem = registryMenu.Append(wx.ID_ANY, 'Drugs')
 
-        self.biogramDbMenuItem = antibiogramMenu.Append(wx.ID_ANY, 'From flat database')
+        self.biogramDbMenuItem = antibiogramMenu.Append(wx.ID_ANY, 'Create summary report')
         self.biogramDbMenuItem.Enable(True)
+        self.biogramHeatmapMenuItem = antibiogramMenu.Append(wx.ID_ANY, 'Create heatmap plot')
+        self.biogramHeatmapMenuItem.Enable(True)
 
         analyzeMenu.Append(wx.ID_ANY, 'Antibiogram', antibiogramMenu)
 
@@ -300,6 +302,9 @@ class MainWindow(wx.Frame):
         ])
         self.SetAcceleratorTable(accel_tbl)
 
+        import sys
+        self.Bind(wx.EVT_CLOSE, lambda x: sys.exit())
+
         self.Bind(wx.EVT_MENU, self.on_about_menu_click, aboutMenuItem)
 
         self.Bind(wx.EVT_MENU, self.OnQuit, exitItem)
@@ -321,6 +326,7 @@ class MainWindow(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_drug_reg_menu_click, drugRegMenuItem)
 
         self.Bind(wx.EVT_MENU, self.onBiogramDbMenuItemClick, self.biogramDbMenuItem)
+        self.Bind(wx.EVT_MENU, self.onBiogramHeatmapMenuItemClick, self.biogramHeatmapMenuItem)
 
         # init panels
         self.info_panel = wx.Panel(self, wx.ID_ANY)
@@ -569,6 +575,7 @@ class MainWindow(wx.Frame):
                 bag = {'data': None, 'filepath': ''}
 
                 def read_excel():
+                    # TODO: need to handle an error
                     df = pandas.read_excel(filepath, sheet_name=sel_worksheet)
                     bag['data'] = df
                     bag['filepath'] = filepath
@@ -801,7 +808,7 @@ class MainWindow(wx.Frame):
                                   "Export failed.",
                                   wx.OK) as md:
                 md.ShowModal()
-            return
+            wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=1)
 
         rf = pandas.read_sql_table('records', con=engine)
         df = pandas.read_sql_table('drugs', con=engine)
@@ -839,7 +846,7 @@ class MainWindow(wx.Frame):
                                       "Export failed.",
                                       wx.OK) as md:
                     md.ShowModal()
-                return
+                wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=1)
             else:
                 #TODO: inform user about error in deduplication if no date was found..
                 dup_keys.append('organism_name')
@@ -899,6 +906,9 @@ class MainWindow(wx.Frame):
                              message='Preparing data to export...') as nd:
             result = nd.ShowModal()
 
+        if result > 0:
+            return
+
         '''
         for colname in self.field_attr.columns:
             column = self.field_attr.get_column(colname)
@@ -930,6 +940,9 @@ class MainWindow(wx.Frame):
         with NotificationBox(self, caption='Writing Data',
                              message='Writing data to Excel file...') as nd:
             result = nd.ShowModal()
+
+        if result > 0:
+            return
 
 
     def onSaveToFlatDbMenuItemClick(self, event, action='replace'):
@@ -1353,9 +1366,11 @@ class MainWindow(wx.Frame):
                         msgDialog.ShowModal()
 
 
-    def generate_antibiogram(self, command, engine, indexes, ncutoff=0):
+    def generate_antibiogram(self, command, engine, indexes, ncutoff=0, heatmap=False):
+        # TODO: move biogram_data into the init method
         self.biogram_data = {}
-        def check_cutoff(x,cutoff=ncutoff):
+
+        def check_cutoff(x, cutoff=ncutoff):
             if x < cutoff:
                 return None
             else:
@@ -1363,15 +1378,26 @@ class MainWindow(wx.Frame):
 
         connection = engine.connect()
         rp = connection.execute(command)
-        columns = indexes + ['drug_group', 'drug', 'result', 'count']
+        if not heatmap:
+            columns = indexes + ['drug_group', 'drug', 'result', 'count']
+        else:
+            columns = indexes + ['drug', 'result', 'count']
         df = pandas.DataFrame(rp.fetchall(), columns=columns)
         if len(df) > 0:
-            total = df.pivot_table(index=indexes,
-                                        columns=['drug_group', 'drug'],
-                                        aggfunc='sum')
+            if not heatmap:
+                total = df.pivot_table(index=indexes,
+                                       columns=['drug_group', 'drug'],
+                                       aggfunc='sum')
+            else:
+                total = df.pivot_table(index=indexes,
+                                       columns=['drug'], aggfunc='sum')
+
             flt_total = total.applymap(check_cutoff)
-            sens = df[df['result']=='S']
-            sens = sens.pivot_table(index=indexes, columns=['drug_group', 'drug']).fillna(0)
+            sens = df[df['result'] == 'S']
+            if not heatmap:
+                sens = sens.pivot_table(index=indexes, columns=['drug_group','drug']).fillna(0)
+            else:
+                sens = sens.pivot_table(index=indexes, columns=['drug']).fillna(0)
             resists = total - sens.fillna(0)
 
             self.biogram_data['biogram_total'] = total
@@ -1381,8 +1407,10 @@ class MainWindow(wx.Frame):
             resists_pct =  round((resists / flt_total) * 100, 2)
             self.biogram_data['biogram_s_pct'] = sens_pct.fillna('')
             self.biogram_data['biogram_ri_pct'] = resists_pct.fillna('')
-            biogram_narst_s = round(sens_pct).fillna('').applymap(str) + " (" + flt_total.applymap(lambda x: '' if pandas.isna(x) else '{:.0f}'.format(x)) + ")"
-            biogram_narst_r = round(resists_pct).fillna('').applymap(str) + " (" + flt_total.applymap(lambda x: '' if pandas.isna(x) else '{:.0f}'.format(x)) + ")"
+            biogram_narst_s = round(sens_pct).fillna('').applymap(str) + \
+                              " (" + flt_total.applymap(lambda x: '' if pandas.isna(x) else '{:.0f}'.format(x)) + ")"
+            biogram_narst_r = round(resists_pct).fillna('').applymap(str) + \
+                              " (" + flt_total.applymap(lambda x: '' if pandas.isna(x) else '{:.0f}'.format(x)) + ")"
             biogram_narst_s = biogram_narst_s.applymap(lambda x: '' if x == ' ()' else x)
             biogram_narst_r = biogram_narst_r.applymap(lambda x: '' if x == ' ()' else x)
             self.biogram_data['biogram_narst_s'] = biogram_narst_s
@@ -1390,3 +1418,169 @@ class MainWindow(wx.Frame):
             wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=0)
         else:
             wx.CallAfter(dispatcher.send, CLOSE_DIALOG_SIGNAL, rc=1)
+
+    def onBiogramHeatmapMenuItemClick(self, event):
+        dwengine = None
+        dwmeta = sa.MetaData()
+        with wx.FileDialog(None, "Choose a flat SQLite data file",
+                           wildcard='SQLite files (*.sqlite;*.db)|*.sqlite;*.db',
+                           style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) \
+                as fileDialog:
+            if fileDialog.ShowModal() == wx.ID_CANCEL:
+                return
+            else:
+                dw_filepath = fileDialog.GetPath()
+        if dw_filepath:
+            dwengine = sa.create_engine('sqlite:///{}'.format(dw_filepath))
+
+        if dwengine:
+            try:
+                dwconn = dwengine.connect()
+                metadata = pandas.read_sql_table('metadata', con=dwengine)
+            except ValueError:
+                with wx.MessageDialog(self, message='Please choose another database file.',
+                                      caption='Database failed to connect.') as md:
+                    md.ShowModal()
+                    return
+            else:
+                profile_filepath = metadata.tail(1)['profile'].tolist()[0]
+
+            try:
+                profile = json.loads(open(profile_filepath, 'r').read())
+            except IOError:
+                with wx.MessageDialog(self, message='Cannot read from {}. It does not exist.'.format(profile_filepath),
+                                      caption='Profile not found') as md:
+                    md.ShowModal()
+                    return
+
+            date_column = None
+            for column in profile['data']:
+                if profile['data'][column]['date'] and \
+                        profile['data'][column]['keep']:
+                    date_column = profile['data'][column]['alias']
+                    break
+
+            try:
+                fact_table = sa.Table('facts', dwmeta, autoload=True, autoload_with=dwengine)
+            except ValueError:
+                return wx.MessageBox(message=('Cannot retrieve data from {}.'
+                                              '\nThe database must contain the fact table.'.format(dw_filepath)),
+                                     caption='Database is not valid.')
+
+            fact_columns = fact_table.c.keys()
+            fact_columns.remove('added_at')
+            if ('sensitivity' not in fact_columns) or ('drug' not in fact_columns) \
+                    or ('drugGroup' not in fact_columns):
+                return wx.MessageBox(message='Please choose another database file.',
+                                     caption='Database schema is not valid.')
+
+            included_fields = list(fact_columns)
+            included_fields.remove('sensitivity')
+            included_fields.remove('drug')
+            included_fields.remove('drugGroup')
+
+            dlg = IndexFieldList(choices=included_fields)
+
+            info = {}
+            info['profile filepath'] = [profile_filepath]
+            info['data source'] = [dw_filepath]
+
+            if dlg.ShowModal() == wx.ID_OK:
+                if dlg.chlbox.CheckedItems:
+                    if len(dlg.indexes) > 1:
+                        with wx.MessageDialog(None,
+                                              "Only single field is supported for now.",
+                                              "Multiple fields were selected.",
+                                               wx.OK) as msg:
+                            if msg.ShowModal() == wx.ID_OK:
+                                return
+
+                    indexes = ['organism_name'] + [included_fields[i] for i in dlg.indexes]
+                    query_columns = [fact_table.c[idx] for idx in indexes] + [
+                        fact_table.c.drug,
+                        fact_table.c.sensitivity,
+                        sa.func.count(fact_table.c.sensitivity)
+                    ]
+                    s = sa.select(query_columns)
+                    source_data = pandas.read_sql_table('facts', con=dwconn)
+                    if date_column:
+                        if not dlg.all.IsChecked():
+                            startdate = map(int, dlg.startDatePicker.GetValue().FormatISODate().split('-'))
+                            enddate = map(int, dlg.endDatePicker.GetValue().FormatISODate().split('-'))
+                            startdate = pandas.Timestamp(*startdate)
+                            enddate = pandas.Timestamp(*enddate)
+                            #df_filter = df[(df[date_column] >= startdate) & (df[date_column] <= enddate)]
+                            s = s.where(sa.and_(fact_table.c[date_column]>=startdate, fact_table.c[date_column]<=enddate))
+                            info['startdate'] = [startdate]
+                            info['enddate'] = [enddate]
+                            source_data = source_data[(source_data[date_column]>=startdate)
+                                                      & (source_data[date_column]<=enddate)]
+                    ncutoff = dlg.ncutoff.GetValue()
+                    organisms = sorted(source_data['organism_name'].unique())
+                    with wx.SingleChoiceDialog(None, "Select an organism", "Organisms", organisms) as org_dlg:
+                        if org_dlg.ShowModal() == wx.ID_OK:
+                            select_organism =  org_dlg.GetStringSelection()
+                        else:
+                            return
+
+                    for index in indexes:
+                        s = s.group_by(fact_table.c[index])
+
+                    s = s.group_by(fact_table.c.drug)
+                    s = s.group_by(fact_table.c.sensitivity)
+                    s = s.where(fact_table.c.organism_name==select_organism)
+
+                    thread = Thread(target=self.generate_antibiogram, args=(s, dwengine, indexes, ncutoff, True))
+                    thread.start()
+                    result = NotificationBox(self, caption='Generate Antibiogram',
+                                             message='Calculating antibiogram, please wait...').ShowModal()
+
+                    if result == 1:
+                        return wx.MessageBox(caption='Empty Antibiogram',
+                                             message=('The antibiogram contains no data.\n'
+                                                      'Please adjust the minimum number of isolates.'))
+                    elif result > 1:
+                        return wx.MessageBox(caption='Unknown Error Occurred',
+                                             message=('Program failed to calculate the antibiogram'
+                                                      'due to data integrity problem.'))
+                    heatmap_df = self.biogram_data['biogram_s_pct']['count'].droplevel(level=0)
+                    self.plot_heatmap(heatmap_df, select_organism)
+                    return
+
+    def plot_heatmap(self, df, title):
+        import numpy
+        import matplotlib.pyplot as plt
+        import matplotlib
+        matplotlib.use('WXAgg')
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
+        import seaborn as sns
+
+        plt.rcParams['font.family'] = 'TH Sarabun New'
+
+        df = df.replace(r'^\s*$', numpy.nan, regex=True)
+        df.dropna(1, how='all', inplace=True)
+        df = df.fillna(120)
+        if df.empty:
+            return wx.MessageBox(caption='Distance matrix is empty.',
+                                 message=('The plot could not be created because the data table is empty.'))
+
+        wildcard = "PNG (*.png)|*.png"
+        filepath = self.data_filepath or os.getcwd()
+        with wx.FileDialog(None, "Choose a file to save a plot.", filepath,
+                           "", wildcard, wx.FC_SAVE) as file_dlg:
+            if file_dlg.ShowModal() == wx.ID_CANCEL:
+                return
+
+        filepath = file_dlg.GetPath()
+
+        try:
+            sns.clustermap(df, cmap=sns.diverging_palette(20, 220, n=7))
+            plt.suptitle(title)
+            plt.savefig(filepath)
+        except:
+            return wx.MessageBox(caption='Plotting Failed.',
+                                 message=('The plot could not be generated or saved to the file.'))
+        else:
+            return wx.MessageBox(caption='Finished.',
+                             message=('The plot has been saved to the file.'))
