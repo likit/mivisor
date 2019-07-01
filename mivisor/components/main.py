@@ -1351,7 +1351,10 @@ class MainWindow(wx.Frame):
                             self.biogram_data['biogram_ri_pct'].fillna(0).to_excel(writer, 'percent_ir')
                             self.biogram_data['biogram_narst_s'].to_excel(writer, 'narst_s')
                             self.biogram_data['biogram_narst_r'].to_excel(writer, 'narst_ir')
-                            source_data.to_excel(writer, 'source', index=False)
+
+                            if dlg.rawDataIncluded.IsChecked():
+                                source_data.to_excel(writer, 'source', index=False)
+
                             pandas.DataFrame(info).to_excel(writer, 'info', index=False)
                             writer.save()
 
