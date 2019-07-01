@@ -200,7 +200,7 @@ class MainWindow(wx.Frame):
         super(MainWindow, self).__init__(parent)
         scr_width, scr_height = wx.DisplaySize()
         self.SetIcon(wx.Icon(os.path.join(basepath, 'icons/appicon.ico')))
-        self.version_no = '2019.1.6'
+        self.version_no = '2019.1.rc7'
         self.description = 'A user-friendly program for microbiological laboratory data management.'
         self.SetTitle('Mivisor Version {}'.format(self.version_no))
         self.SetSize((int(scr_width * 0.65), int(scr_height * 0.85)))
