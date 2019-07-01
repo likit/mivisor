@@ -193,6 +193,9 @@ class IndexFieldList(wx.Dialog):
         self.all = wx.CheckBox(panel, id=wx.ID_ANY, label="Select all dates")
         self.all.SetValue(True)
 
+        self.rawDataIncluded = wx.CheckBox(panel, id=wx.ID_ANY, label="Include raw data in the output")
+        self.rawDataIncluded.SetValue(False)
+
         self.indexes = []
         self.choices = choices
 
@@ -227,12 +230,16 @@ class IndexFieldList(wx.Dialog):
                                                  "Set the minimum the number of isolates:")
         cutOffStaticBoxSizer.Add(self.ncutoff, wx.ALL | wx.ALIGN_LEFT, 5)
 
+        rawDataStaticBoxSizer = wx.StaticBoxSizer(wx.VERTICAL, panel, "Raw data:")
+        rawDataStaticBoxSizer.Add(self.rawDataIncluded, wx.ALL | wx.ALIGN_LEFT | wx.EXPAND, 5)
+
         startDateLabel = wx.StaticText(panel, label="Select start date")
         endDateLabel = wx.StaticText(panel, label="Select end date")
         gridbox.AddMany([startDateLabel, self.startDatePicker])
         gridbox.AddMany([endDateLabel, self.endDatePicker])
         vsizer.Add(self.index_items_list, 1, wx.EXPAND | wx.ALL, 5)
         vsizer.Add(cutOffStaticBoxSizer, 0, wx.EXPAND | wx.ALIGN_LEFT | wx.ALL, 5)
+        vsizer.Add(rawDataStaticBoxSizer, 0, wx.EXPAND | wx.ALIGN_LEFT | wx.ALL, 5)
         vsizer.Add(staticBoxSizer, 0, wx.EXPAND | wx.ALIGN_CENTER | wx.ALL, 5)
         vsizer.Add(hbox, 0, wx.ALIGN_CENTER | wx.ALL, 5)
         panel.SetSizer(vsizer)
