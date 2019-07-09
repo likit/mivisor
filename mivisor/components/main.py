@@ -1100,6 +1100,7 @@ class MainWindow(wx.Frame):
                             if self.field_attr.data[c]['drug'] is True] + ['sur_key']
             records_frame = self.data_grid.table.df[rec_columns]
             drugs_frame = self.data_grid.table.df[drug_columns]
+            drugs_frame.fillna('-', inplace=True)
             drugs_frame = drugs_frame.set_index('sur_key')\
                 .stack().reset_index().rename(columns={'level_1': 'drug', 0: 'sensitivity'})
             # save records into records table
