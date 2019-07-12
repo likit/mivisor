@@ -61,12 +61,9 @@ class FieldAttribute():
 
         json_data = json.loads(json_data)
         profile_cols = json_data['columns']
-        profile_data = json_data['data']
-        profile_cols_no_agg = [col for col in profile_cols if not col.startswith('@')]
-        profile_cols_no_agg = [col for col in profile_cols_no_agg if not
-                               profile_data[col]['drug']]
-        if set(self.columns).difference(set(profile_cols_no_agg)) or \
-                set(profile_cols_no_agg).difference(set(self.columns)):
+        profile_cols_no_agg = set([col for col in profile_cols if not
+                                   col.startswith('@')])
+        if profile_cols_no_agg.difference(self.columns):
             return False
         else:
             self.columns = profile_cols
