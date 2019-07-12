@@ -61,7 +61,10 @@ class FieldAttribute():
 
         json_data = json.loads(json_data)
         profile_cols = json_data['columns']
+        profile_data = json_data['data']
         profile_cols_no_agg = [col for col in profile_cols if not col.startswith('@')]
+        profile_cols_no_agg = [col for col in profile_cols_no_agg if not
+                               profile_data[col]['drug']]
         if set(self.columns).difference(set(profile_cols_no_agg)) or \
                 set(profile_cols_no_agg).difference(set(self.columns)):
             return False
@@ -200,7 +203,7 @@ class MainWindow(wx.Frame):
         super(MainWindow, self).__init__(parent)
         scr_width, scr_height = wx.DisplaySize()
         self.SetIcon(wx.Icon(os.path.join(basepath, 'icons/appicon.ico')))
-        self.version_no = '2019.1.rc7'
+        self.version_no = '2019.1.7'
         self.description = 'A user-friendly program for microbiological laboratory data management.'
         self.SetTitle('Mivisor Version {}'.format(self.version_no))
         self.SetSize((int(scr_width * 0.65), int(scr_height * 0.85)))
@@ -231,7 +234,7 @@ class MainWindow(wx.Frame):
         aboutMenu = wx.Menu()
         databaseMenu = wx.Menu()
         imp = wx.Menu()
-        mlabItem = imp.Append(wx.ID_ANY, 'MLAB')
+        mlabItem = imp.Append(wx.ID_ANY, 'Excel (MLAB)')
         # csvItem = imp.Append(wx.ID_ANY, 'CSV')
         # csvItem.Enable(False)
         fileMenu.AppendSeparator()
@@ -1302,7 +1305,7 @@ class MainWindow(wx.Frame):
                                                 fact_table.c.sensitivity, 
                                                 sa.func.count(fact_table.c.sensitivity)
                                             ]
-                    s = sa.select(query_columns)
+                    s = sa.select(query_columns).where(fact_table.c.sensitivity!='-')
                     source_data = pandas.read_sql_table('facts', con=dwconn)
                     if date_column:
                         if not dlg.all.IsChecked():
@@ -1346,10 +1349,10 @@ class MainWindow(wx.Frame):
                             excel_filepath = fileDialog.GetPath()
                             writer = pandas.ExcelWriter(excel_filepath)
                             self.biogram_data['biogram_total'].fillna(0).to_excel(writer, 'total')
-                            self.biogram_data['biogram_s'].fillna(0).to_excel(writer, 'count_s')
-                            self.biogram_data['biogram_ri'].fillna(0).to_excel(writer, 'count_ir')
-                            self.biogram_data['biogram_s_pct'].fillna(0).to_excel(writer, 'percent_s')
-                            self.biogram_data['biogram_ri_pct'].fillna(0).to_excel(writer, 'percent_ir')
+                            self.biogram_data['biogram_s'].to_excel(writer, 'count_s')
+                            self.biogram_data['biogram_ri'].to_excel(writer, 'count_ir')
+                            self.biogram_data['biogram_s_pct'].to_excel(writer, 'percent_s')
+                            self.biogram_data['biogram_ri_pct'].to_excel(writer, 'percent_ir')
                             self.biogram_data['biogram_narst_s'].to_excel(writer, 'narst_s')
                             self.biogram_data['biogram_narst_r'].to_excel(writer, 'narst_ir')
 
@@ -1387,6 +1390,7 @@ class MainWindow(wx.Frame):
         else:
             columns = indexes + ['drug', 'result', 'count']
         df = pandas.DataFrame(rp.fetchall(), columns=columns)
+
         if len(df) > 0:
             if not heatmap:
                 total = df.pivot_table(index=indexes,
@@ -1399,10 +1403,10 @@ class MainWindow(wx.Frame):
             flt_total = total.applymap(check_cutoff)
             sens = df[df['result'] == 'S']
             if not heatmap:
-                sens = sens.pivot_table(index=indexes, columns=['drug_group','drug']).fillna(0)
+                sens = sens.pivot_table(index=indexes, columns=['drug_group','drug'])
             else:
                 sens = sens.pivot_table(index=indexes, columns=['drug']).fillna(0)
-            resists = total - sens.fillna(0)
+            resists = total - sens
 
             self.biogram_data['biogram_total'] = total
             self.biogram_data['biogram_s'] = sens
