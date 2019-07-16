@@ -216,7 +216,7 @@ class MainWindow(wx.Frame):
         self.field_attr = FieldAttribute()
         df = pandas.DataFrame({'Name': ['Mivisor'],
                                'Version': [self.version_no],
-                               'Released': ['2019-06-27'],
+                               'Released': ['2019-07-16'],
                                'Description': [self.description],
                                'Contact': ['likit.pre@mahidol.edu']})
 
