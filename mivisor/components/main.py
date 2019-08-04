@@ -14,7 +14,7 @@ CLOSE_DIALOG_SIGNAL = 'close-notification-dialog'
 from components.datatable import DataGrid
 from components.fieldcreation import (FieldCreateDialog, OrganismFieldFormDialog,
                                       DrugRegFormDialog, IndexFieldList,
-                                      DateRangeFieldList)
+                                      HeatmapFieldList, DateRangeFieldList)
 
 APPDATA_DIR = 'appdata'
 DRUG_REGISTRY_FILE = 'drugs.json'
@@ -1503,7 +1503,7 @@ class MainWindow(wx.Frame):
             included_fields.remove('drug')
             included_fields.remove('drugGroup')
 
-            dlg = IndexFieldList(choices=included_fields)
+            dlg = HeatmapFieldList(choices=included_fields)
 
             info = {}
             info['profile filepath'] = [profile_filepath]

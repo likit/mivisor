@@ -329,3 +329,86 @@ class DateRangeFieldList(wx.Dialog):
             self.startDatePicker.Enable(True)
             self.endDatePicker.Enable(True)
 
+
+class HeatmapFieldList(wx.Dialog):
+    def __init__(self, choices):
+        super(HeatmapFieldList, self).__init__(None, -1, "Antibiogram Heat Map",
+                                             size=(350,800))
+        panel = wx.Panel(self)
+        vsizer = wx.BoxSizer(wx.VERTICAL)
+        self.chlbox = wx.CheckListBox(panel, choices=choices)
+        self.chlbox.Bind(wx.EVT_CHECKLISTBOX, self.onChecklistboxChecked)
+        self.startDatePicker = DatePickerCtrl(panel, id=wx.ID_ANY, dt=datetime.datetime.now())
+        self.endDatePicker = DatePickerCtrl(panel, id=wx.ID_ANY, dt=datetime.datetime.now())
+        self.startDatePicker.Enable(False)
+        self.endDatePicker.Enable(False)
+        self.all = wx.CheckBox(panel, id=wx.ID_ANY, label="Select all dates")
+        self.all.SetValue(True)
+
+        self.indexes = []
+        self.choices = choices
+
+        self.all.Bind(wx.EVT_CHECKBOX, self.onCheckboxChecked)
+
+        self.ncutoff = wx.SpinCtrl(panel, value="", min=0, initial=30, name="No.Cutoff")
+
+        label = wx.StaticText(panel, label="Group by:")
+
+        vsizer.Add(label, 0, wx.ALL, 5)
+        vsizer.Add(self.chlbox, 1, wx.EXPAND | wx.ALL, 5)
+
+        nextButton = wx.Button(panel, wx.ID_OK, label="Next")
+        nextButton.SetFocus()
+        cancelButton = wx.Button(panel, wx.ID_CANCEL, label="Cancel")
+        nextButton.Bind(wx.EVT_BUTTON, self.onNextButtonClick)
+        cancelButton.Bind(wx.EVT_BUTTON, self.onCancelButtonClick)
+
+        staticBoxSizer = wx.StaticBoxSizer(wx.VERTICAL, panel, "Select a date range:")
+        hbox = wx.BoxSizer(wx.HORIZONTAL)
+        hbox.Add(cancelButton, 0, wx.EXPAND | wx.ALL, 2)
+        hbox.Add(nextButton, 0, wx.EXPAND | wx.ALL, 2)
+
+        gridbox = wx.GridSizer(2,2,2,2)
+
+        staticBoxSizer.Add(self.all, 0, wx.EXPAND | wx.ALL, 5)
+        staticBoxSizer.Add(gridbox, 0, wx.EXPAND | wx.ALL, 5)
+
+        cutOffStaticBoxSizer = wx.StaticBoxSizer(wx.VERTICAL, panel,
+                                                 "Set the minimum the number of isolates:")
+        cutOffStaticBoxSizer.Add(self.ncutoff, wx.ALL | wx.ALIGN_LEFT, 5)
+
+        startDateLabel = wx.StaticText(panel, label="Select start date")
+        endDateLabel = wx.StaticText(panel, label="Select end date")
+        gridbox.AddMany([startDateLabel, self.startDatePicker])
+        gridbox.AddMany([endDateLabel, self.endDatePicker])
+        vsizer.Add(cutOffStaticBoxSizer, 0, wx.EXPAND | wx.ALIGN_LEFT | wx.ALL, 5)
+        vsizer.Add(staticBoxSizer, 0, wx.EXPAND | wx.ALIGN_CENTER | wx.ALL, 5)
+        vsizer.Add(hbox, 0, wx.ALIGN_CENTER | wx.ALL, 5)
+        panel.SetSizer(vsizer)
+
+    def onNextButtonClick(self, event):
+        self.EndModal(wx.ID_OK)
+        self.Destroy()
+
+    def onCancelButtonClick(self, event):
+        self.EndModal(wx.ID_CANCEL)
+        self.Destroy()
+
+    def onCheckboxChecked(self, event):
+        if event.IsChecked():
+            self.startDatePicker.Enable(False)
+            self.endDatePicker.Enable(False)
+        else:
+            self.startDatePicker.Enable(True)
+            self.endDatePicker.Enable(True)
+
+    def onChecklistboxChecked(self, event):
+        item = event.GetInt()
+        if not self.chlbox.IsChecked(item):
+            self.indexes.remove(item)
+        else:
+            self.indexes.append(item)
+            for i in self.chlbox.GetCheckedItems():
+                if i != item:
+                    self.chlbox.Check(i, check=False)
+                    self.indexes.remove(i)
