@@ -1,3 +1,3 @@
-pyinstaller --distpath pydist --workpath pybuild -y --onefile --add-data components\icons;components\icons --hidden-import numpy --hidden-import xlrd --hidden-import xlsxwriter --hidden-import distutils --hidden-import pydispatcher--windowed --noconsole --icon=components\icons\appicon.ico app.py
+pyinstaller --distpath pydist --workpath pybuild -y --onefile --add-data components\icons;components\icons --hidden-import numpy --hidden-import xlrd --hidden-import xlsxwriter --hidden-import distutils --hidden-import pydispatcher --windowed --noconsole --icon=components\icons\appicon.ico app.py
 
 Note that running pyinstaller inside Python venv failed as of 05/24/2019. However, running pyinstaller with virtualenv works.
