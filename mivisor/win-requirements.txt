@@ -25,3 +25,4 @@ wrapt==1.11.1
 wxPython==4.0.6
 xlrd==1.2.0
 XlsxWriter==1.1.8
+matplotlib==3.0.3

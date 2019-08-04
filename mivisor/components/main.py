@@ -1303,6 +1303,7 @@ class MainWindow(wx.Frame):
             info['data source'] = [dw_filepath]
 
             if dlg.ShowModal() == wx.ID_OK:
+                rawDataIncluded = dlg.rawDataIncluded.IsChecked()
                 if dlg.chlbox.CheckedItems:
                     indexes = [included_fields[i] for i in dlg.indexes]
                     query_columns = [fact_table.c[idx] for idx in indexes] + [
@@ -1362,7 +1363,7 @@ class MainWindow(wx.Frame):
                             self.biogram_data['biogram_narst_s'].to_excel(writer, 'narst_s')
                             self.biogram_data['biogram_narst_r'].to_excel(writer, 'narst_ir')
 
-                            if dlg.rawDataIncluded.IsChecked():
+                            if rawDataIncluded:
                                 source_data.to_excel(writer, 'source', index=False)
 
                             pandas.DataFrame(info).to_excel(writer, 'info', index=False)
@@ -1593,8 +1594,8 @@ class MainWindow(wx.Frame):
                            "", wildcard, wx.FC_SAVE) as file_dlg:
             if file_dlg.ShowModal() == wx.ID_CANCEL:
                 return
-
-        filepath = file_dlg.GetPath()
+            else:
+                filepath = file_dlg.GetPath()
 
         try:
             sns.clustermap(df, cmap=sns.diverging_palette(20, 220, n=7))
