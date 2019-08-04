@@ -181,7 +181,8 @@ class DrugRegFormDialog(wx.Dialog):
 
 class IndexFieldList(wx.Dialog):
     def __init__(self, choices):
-        super(IndexFieldList, self).__init__(None, -1, "Antibiogram Indexes", size=(350,600))
+        super(IndexFieldList, self).__init__(None, -1, "Antibiogram Indexes",
+                                             size=(350,800))
         panel = wx.Panel(self)
         vsizer = wx.BoxSizer(wx.VERTICAL)
         self.chlbox = wx.CheckListBox(panel, choices=choices)

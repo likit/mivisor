@@ -1256,9 +1256,18 @@ class MainWindow(wx.Frame):
             try:
                 profile = json.loads(open(profile_filepath, 'r').read())
             except IOError:
-                with wx.MessageDialog(self, message='Cannot read from {}. It does not exist.'.format(profile_filepath),
-                                      caption='Profile not found') as md:
-                    md.ShowModal()
+                # Try finding a profile file from the data directory
+                try:
+                    _datapath = os.path.dirname(dw_filepath)
+                    _profile_filename = os.path.split(profile_filepath)[-1]
+                    profile = json.loads(open(os.path.join(_datapath,
+                                                           _profile_filename), 'r').read())
+                except IOError:
+                    with wx.MessageDialog(self,
+                                          message='Cannot read from {}. It does not exist.'\
+                                          .format(profile_filepath),
+                                          caption='Profile not found') as md:
+                        md.ShowModal()
                     return
 
             date_column = None
@@ -1453,9 +1462,16 @@ class MainWindow(wx.Frame):
             try:
                 profile = json.loads(open(profile_filepath, 'r').read())
             except IOError:
-                with wx.MessageDialog(self, message='Cannot read from {}. It does not exist.'.format(profile_filepath),
+                # Try finding a profile file from the data directory
+                try:
+                    _datapath = os.path.dirname(dw_filepath)
+                    _profile_filename = os.path.split(profile_filepath)[-1]
+                    profile = json.loads(open(os.path.join(_datapath,
+                                                           _profile_filename), 'r').read())
+                except IOError:
+                    with wx.MessageDialog(self, message='Cannot read from {}. It does not exist.'.format(profile_filepath),
                                       caption='Profile not found') as md:
-                    md.ShowModal()
+                        md.ShowModal()
                     return
 
             date_column = None
@@ -1494,7 +1510,8 @@ class MainWindow(wx.Frame):
                 if dlg.chlbox.CheckedItems:
                     if len(dlg.indexes) > 1:
                         with wx.MessageDialog(None,
-                                              "Only single field is supported for now.",
+                                              "Only single field is supported"
+                                              " for this version.",
                                               "Multiple fields were selected.",
                                                wx.OK) as msg:
                             if msg.ShowModal() == wx.ID_OK:
