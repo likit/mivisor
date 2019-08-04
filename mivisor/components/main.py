@@ -202,10 +202,10 @@ class MainWindow(wx.Frame):
         super(MainWindow, self).__init__(parent)
         scr_width, scr_height = wx.DisplaySize()
         self.SetIcon(wx.Icon(os.path.join(basepath, 'icons/appicon.ico')))
-        self.version_no = '2019.1.7'
-        self.description = 'A user-friendly program for microbiological laboratory data management.'
+        self.version_no = '2019.1.8'
+        self.description = 'Faculty of Medical Technology, Mahidol University'
         self.SetTitle('Mivisor Version {}'.format(self.version_no))
-        self.SetSize((int(scr_width * 0.65), int(scr_height * 0.85)))
+        self.SetSize((int(scr_width * 0.75), int(scr_height * 0.85)))
         self.Center()
 
         self.current_column = None
@@ -218,8 +218,8 @@ class MainWindow(wx.Frame):
         self.field_attr = FieldAttribute()
         df = pandas.DataFrame({'Name': ['Mivisor'],
                                'Version': [self.version_no],
-                               'Released': ['2019-07-16'],
-                               'Description': [self.description],
+                               'Released': ['2019-08-04'],
+                               'Brought to you by': [self.description],
                                'Contact': ['likit.pre@mahidol.edu']})
 
         menubar = wx.MenuBar()
