@@ -189,7 +189,9 @@ class NotificationBox(wx.Dialog):
         self.label.SetLabelText(msg)
 
     def endModal(self, rc):
-        if bool(self):
+        # Not sure why sometimes the dialog is not modal,
+        # but failing to check it causes an error.
+        if self.IsModal():
             self.EndModal(rc)
         else:
             return rc
