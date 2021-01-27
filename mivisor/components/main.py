@@ -1,13 +1,13 @@
 import os
 import pandas
 import sqlalchemy as sa
-import xlrd
 import json
 import wx, wx.adv, wx.lib
 from datetime import datetime
 from wx.lib.wordwrap import wordwrap
 from threading import Thread
 from pydispatch import dispatcher
+from openpyxl import load_workbook
 
 CLOSE_DIALOG_SIGNAL = 'close-notification-dialog'
 
@@ -563,7 +563,7 @@ class MainWindow(wx.Frame):
         filepath = browse(filetype)
         if filepath and filepath:
             try:
-                worksheets = xlrd.open_workbook(filepath).sheet_names()
+                worksheets = load_workbook(filepath).sheetnames
             except FileNotFoundError:
                 wx.MessageDialog(self,
                                  'Cannot download the data file.\nPlease check the file path again.',
