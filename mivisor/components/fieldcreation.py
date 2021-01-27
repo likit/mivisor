@@ -309,7 +309,7 @@ class DateRangeFieldList(wx.Dialog):
         endDateLabel = wx.StaticText(panel, label="Select end date")
         gridbox.AddMany([startDateLabel, self.startDatePicker])
         gridbox.AddMany([endDateLabel, self.endDatePicker])
-        vsizer.Add(staticBoxSizer, 0, wx.EXPAND | wx.ALIGN_CENTER | wx.ALL, 5)
+        vsizer.Add(staticBoxSizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)
         vsizer.Add(hbox, 0, wx.ALIGN_CENTER | wx.ALL, 5)
         panel.SetSizer(vsizer)
 
