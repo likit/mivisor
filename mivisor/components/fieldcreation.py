@@ -241,7 +241,7 @@ class IndexFieldList(wx.Dialog):
         vsizer.Add(self.index_items_list, 1, wx.EXPAND | wx.ALL, 5)
         vsizer.Add(cutOffStaticBoxSizer, 0, wx.EXPAND | wx.ALIGN_LEFT | wx.ALL, 5)
         vsizer.Add(rawDataStaticBoxSizer, 0, wx.EXPAND | wx.ALIGN_LEFT | wx.ALL, 5)
-        vsizer.Add(staticBoxSizer, 0, wx.EXPAND | wx.ALIGN_CENTER | wx.ALL, 5)
+        vsizer.Add(staticBoxSizer, 0, wx.ALIGN_CENTER | wx.ALL, 5)
         vsizer.Add(hbox, 0, wx.ALIGN_CENTER | wx.ALL, 5)
         panel.SetSizer(vsizer)
 
