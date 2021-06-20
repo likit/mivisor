@@ -680,44 +680,44 @@ class MainWindow(wx.Frame):
 
             values = self.data_grid.table.df[sel_col].unique()
             _df = pandas.DataFrame({'Value': values, 'Group': values})
-            fc = FieldCreateDialog()
-            fc.grid.set_table(_df)
-            resp = fc.ShowModal()
+            with FieldCreateDialog() as fc:
+                fc.grid.set_table(_df)
+                resp = fc.ShowModal()
 
-            if resp == wx.ID_OK:
-                _agg_dict = {}
-                for idx, row in fc.grid.table.df.iterrows():
-                    _agg_dict[row['Value']] = row['Group']
+                if resp == wx.ID_OK:
+                    _agg_dict = {}
+                    for idx, row in fc.grid.table.df.iterrows():
+                        _agg_dict[row['Value']] = row['Group']
 
-                _agg_data = []
-                for value in self.data_grid.table.df[sel_col]:
-                    _agg_data.append(_agg_dict[value])
-                new_col = '@' + fc.field_name.GetValue()
-                if new_col in self.field_attr.columns:
-                    new_col += '-copy'
-                self.data_grid.table.df.insert(sel_col_index + 1, new_col, value=_agg_data)
-                self.data_grid.AutoSize()
-                self.data_grid_box_sizer.Layout()
-                self.data_grid.table.InsertCols(sel_col_index + 1, 1)
-                self.field_attr.columns.insert(sel_col_index + 1, new_col)
-                self.field_attr.data[new_col] = {
-                    'name': new_col,
-                    'alias': new_col,
-                    'organism': False,
-                    'key': False,
-                    'drug': False,
-                    'date': False,
-                    'type': str(self.data_grid.table.df[new_col].dtype),
-                    'keep': True,
-                    'desc': "",
-                    'aggregate': {
-                        'from': sel_col,
-                        'data': _agg_dict
+                    _agg_data = []
+                    for value in self.data_grid.table.df[sel_col]:
+                        _agg_data.append(_agg_dict[value])
+                    new_col = '@' + fc.field_name.GetValue()
+                    if new_col in self.field_attr.columns:
+                        new_col += '-copy'
+                    self.data_grid.table.df.insert(sel_col_index + 1, new_col, value=_agg_data)
+                    self.data_grid.AutoSize()
+                    self.data_grid_box_sizer.Layout()
+                    self.data_grid.table.InsertCols(sel_col_index + 1, 1)
+                    self.field_attr.columns.insert(sel_col_index + 1, new_col)
+                    self.field_attr.data[new_col] = {
+                        'name': new_col,
+                        'alias': new_col,
+                        'organism': False,
+                        'key': False,
+                        'drug': False,
+                        'date': False,
+                        'type': str(self.data_grid.table.df[new_col].dtype),
+                        'keep': True,
+                        'desc': "",
+                        'aggregate': {
+                            'from': sel_col,
+                            'data': _agg_dict
+                        }
                     }
-                }
-                self.refresh_field_attr_list_column()
-            self.OnSaveProfile(None)
-            self.onSaveToDatabaseMenuItemClick(None)
+                    self.refresh_field_attr_list_column()
+            # self.OnSaveProfile(None)
+            # self.onSaveToDatabaseMenuItemClick(None)
 
     def reset_summary_table(self, desc):
         self.summary_table.ClearAll()
