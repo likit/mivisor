@@ -52,6 +52,7 @@ class DrugRegFormDialog(wx.Dialog):
             pass
         else:
             if wx.MessageBox('Drugs data saved.', style=wx.OK) == wx.OK:
+                self.update_drug_list()
                 self.EndModal(wx.ID_OK)
                 self.Destroy()
 
@@ -76,14 +77,16 @@ class DrugRegFormDialog(wx.Dialog):
         else:
             if self.drug_df.empty:
                 self.drug_df = pd.DataFrame(columns=['drug', 'abbreviation', 'group'])
+            self.update_drug_list()
+
+    def update_drug_list(self):
+        drug_list = []
+        self.drug_df = self.drug_df.sort_values(['group'])
+        for idx, row in self.drug_df.iterrows():
+            if row['abbreviation']:
+                abbrs = [a.strip().upper() for a in row['abbreviation'].split(',')]
             else:
-                drug_list = []
-                self.drug_df = self.drug_df.sort_values(['group'])
-                for idx, row in self.drug_df.iterrows():
-                    if row['abbreviation']:
-                        abbrs = [a.strip().upper() for a in row['abbreviation'].split(',')]
-                    else:
-                        abbrs = []
-                    for ab in abbrs:
-                        drug_list.append({'drug': row['drug'], 'abbr': ab, 'group': row['group']})
-                self.drug_data = pd.DataFrame(drug_list)
+                abbrs = []
+            for ab in abbrs:
+                drug_list.append({'drug': row['drug'], 'abbr': ab, 'group': row['group']})
+        self.drug_data = pd.DataFrame(drug_list)
