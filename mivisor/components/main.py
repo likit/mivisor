@@ -196,7 +196,9 @@ class MainPanel(wx.Panel):
     def __init__(self, parent):
         wx.Panel.__init__(self, parent=parent, id=wx.ID_ANY)
 
+        self.drug_dlg = DrugRegFormDialog()
         self.df = pd.DataFrame()
+        self.data = []
         self.colnames = []
         self.organism_col = config.Read('OrganismCol', '')
         self.identifier_col = config.Read('IdentifierCol', '')
@@ -218,7 +220,7 @@ class MainPanel(wx.Panel):
         add_button.Bind(wx.EVT_BUTTON, self.add_column)
         copy_button.Bind(wx.EVT_BUTTON, self.copy_column)
         config_btn.Bind(wx.EVT_BUTTON, self.configure)
-        melt_btn.Bind(wx.EVT_BUTTON, self.melt)
+        melt_btn.Bind(wx.EVT_BUTTON, self.onMelt)
         generate_btn.Bind(wx.EVT_BUTTON, self.generate)
         drug_btn.Bind(wx.EVT_BUTTON, self.open_drug_dialog)
 
@@ -267,8 +269,7 @@ class MainPanel(wx.Panel):
             self.read_data_from_file()
 
     def open_drug_dialog(self, event):
-        drug_dlg = DrugRegFormDialog()
-        drug_dlg.ShowModal()
+        self.drug_dlg.ShowModal()
 
     def setColumns(self):
         columns = []
@@ -342,19 +343,27 @@ class MainPanel(wx.Panel):
                 config.Write('SpecimensCol', self.specimens_col)
                 config.Write('Drugs', ';'.join(self.drugs_col))
 
-    def melt(self, event):
-        self.keys = []
+    def melt(self):
+        keys = []
         for c in self.colnames:
             if c not in self.drugs_col:
-                self.keys.append(c)
+                keys.append(c)
         data = [row.to_list(self.colnames) for row in self.data]
         ids = [row.id for row in self.data]
         df = pd.DataFrame(data=data, index=ids, columns=self.colnames)
-        self.melted_df = df.melt(id_vars=self.keys)
-        print(self.melted_df.columns)
-        print('done melting..')
+        return df.melt(id_vars=keys)
+
+    def onMelt(self, event):
+        melted_df = self.melt()
+        print(melted_df)
 
     def generate(self, event):
+        melted_df = self.melt()
+        if melted_df.empty:
+            with wx.MessageDialog(self, 'No data provided. Please load data from an Excel file',
+                                  'Error', style=wx.OK) as dlg:
+                if dlg.ShowModal() == wx.ID_OK:
+                    return
         columns = [c for c in self.colnames if c not in self.drugs_col] + ['GENUS', 'SPECIES', 'GRAM']
         if self.identifier_col in columns:
             columns.remove(self.identifier_col)
@@ -362,9 +371,10 @@ class MainPanel(wx.Panel):
             columns.remove(self.date_col)
         with BiogramIndexDialog(self, columns) as dlg:
             if dlg.ShowModal() == wx.ID_OK and dlg.indexes:
+                # TODO: remove hard-coded organism file
                 organism_df = pd.read_excel('organisms2020.xlsx')
-                _melted_df = pd.merge(self.melted_df, organism_df, how='inner')
-                _melted_df = pd.merge(_melted_df, self.drug_data, right_on='abbr', left_on='variable', how='outer')
+                _melted_df = pd.merge(melted_df, organism_df, how='inner')
+                _melted_df = pd.merge(_melted_df, self.drug_dlg.drug_data, right_on='abbr', left_on='variable', how='outer')
                 indexes = [columns[idx] for idx in dlg.indexes]
                 total = _melted_df.pivot_table(index=indexes, columns=['group', 'variable'], aggfunc='count')
                 sens = _melted_df[_melted_df['value'] == 'S'].pivot_table(index=indexes,
@@ -374,7 +384,11 @@ class MainPanel(wx.Panel):
                 formatted_total = total.applymap(lambda x: '' if pd.isna(x) else '{:.0f}'.format(x))
                 biogram_narst_s = biogram.fillna('-').applymap(str) + " (" + formatted_total + ")"
                 biogram_narst_s = biogram_narst_s.applymap(lambda x: '' if x.startswith('-') else x)
+                # TODO: remove hard-coded output file
                 biogram_narst_s[self.identifier_col].to_excel('biogram.xlsx')
+                with wx.MessageDialog(self, 'Done', 'Antibiogram Generator', style=wx.OK) as dlg:
+                    if dlg.ShowModal() == wx.ID_OK:
+                        return
 
 
 class MainFrame(wx.Frame):
