@@ -5,6 +5,7 @@ import pandas
 from components.datatable import DataGrid
 from wx.adv import DatePickerCtrl
 
+
 class FieldCreateDialog(wx.Dialog):
     def __init__(self):
         super(FieldCreateDialog, self).__init__(
@@ -13,7 +14,7 @@ class FieldCreateDialog(wx.Dialog):
         self.form_panel = wx.Panel(self)
         self.grid = DataGrid(self.data_panel)
         grid_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.data_panel, "Field values")
-        grid_sizer.Add(self.grid, 1, flag=wx.EXPAND|wx.ALL)
+        grid_sizer.Add(self.grid, 1, flag=wx.EXPAND | wx.ALL)
         self.data_panel.SetSizer(grid_sizer)
 
         form_box_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.form_panel, "Edit")
@@ -24,12 +25,12 @@ class FieldCreateDialog(wx.Dialog):
         create_button = wx.Button(self.form_panel, id=wx.ID_OK, label="Create")
         form_sizer.AddMany([self.field_name_lbl, self.field_name])
         form_sizer.AddMany([cancel_button, create_button])
-        form_box_sizer.Add(form_sizer, 1, flag=wx.EXPAND|wx.ALL)
+        form_box_sizer.Add(form_sizer, 1, flag=wx.EXPAND | wx.ALL)
         self.form_panel.SetSizer(form_box_sizer)
 
         hbox = wx.BoxSizer(wx.HORIZONTAL)
-        hbox.Add(self.data_panel, 1, flag=wx.EXPAND|wx.ALL)
-        hbox.Add(self.form_panel, flag=wx.ALL|wx.EXPAND)
+        hbox.Add(self.data_panel, 1, flag=wx.EXPAND | wx.ALL)
+        hbox.Add(self.form_panel, flag=wx.ALL | wx.EXPAND)
         self.SetSizer(hbox)
 
 
@@ -41,7 +42,7 @@ class OrganismFieldFormDialog(wx.Dialog):
         self.form_panel = wx.Panel(self)
         self.grid = DataGrid(self.data_panel)
         self.grid_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.data_panel, "Field values")
-        self.grid_sizer.Add(self.grid, 1, flag=wx.EXPAND|wx.ALL)
+        self.grid_sizer.Add(self.grid, 1, flag=wx.EXPAND | wx.ALL)
         self.data_panel.SetSizer(self.grid_sizer)
 
         form_box_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.form_panel, "Edit")
@@ -54,12 +55,12 @@ class OrganismFieldFormDialog(wx.Dialog):
         import_button.Bind(wx.EVT_BUTTON, self.onImportButtonClick)
         form_sizer.AddMany([cancel_button, save_button])
         form_sizer.Add(import_button)
-        form_box_sizer.Add(form_sizer, 1, flag=wx.EXPAND|wx.ALL)
+        form_box_sizer.Add(form_sizer, 1, flag=wx.EXPAND | wx.ALL)
         self.form_panel.SetSizer(form_box_sizer)
 
         hbox = wx.BoxSizer(wx.HORIZONTAL)
-        hbox.Add(self.data_panel, 1, flag=wx.EXPAND|wx.ALL)
-        hbox.Add(self.form_panel, flag=wx.ALL|wx.EXPAND)
+        hbox.Add(self.data_panel, 1, flag=wx.EXPAND | wx.ALL)
+        hbox.Add(self.form_panel, flag=wx.ALL | wx.EXPAND)
         self.SetSizer(hbox)
 
         self.Bind(wx.EVT_CLOSE, self.onClose)
@@ -88,91 +89,22 @@ class OrganismFieldFormDialog(wx.Dialog):
             return
 
         if filepath:
-            df = pandas.read_excel(filepath, usecols=[0,1,2])
+            df = pandas.read_excel(filepath, usecols=[0, 1, 2])
             self.grid_sizer.Remove(0)
             self.grid.Destroy()
             self.grid = DataGrid(self.data_panel)
             self.grid.set_table(df)
-            self.grid_sizer.Add(self.grid, 1, flag=wx.EXPAND|wx.ALL)
+            self.grid_sizer.Add(self.grid, 1, flag=wx.EXPAND | wx.ALL)
             self.grid_sizer.Layout()
 
 
 # probably needs to extend from a base class instead for future reuse
 # this needs some serious refactoring
-class DrugRegFormDialog(wx.Dialog):
-    def __init__(self):
-        super(DrugRegFormDialog, self).__init__(
-            None, -1, "Drug Registry", size=(850, 600))
-        self.data_panel = wx.Panel(self)
-        self.form_panel = wx.Panel(self)
-        self.grid = DataGrid(self.data_panel)
-        self.grid_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.data_panel, "Field values")
-        self.grid_sizer.Add(self.grid, 1, flag=wx.EXPAND|wx.ALL)
-        self.data_panel.SetSizer(self.grid_sizer)
-
-        form_box_sizer = wx.StaticBoxSizer(wx.VERTICAL, self.form_panel, "Edit")
-        form_sizer = wx.FlexGridSizer(cols=2, hgap=2, vgap=20)
-        add_button = wx.Button(self.form_panel, -1, "Add row")
-        cancel_button = wx.Button(self.form_panel, -1, "Cancel")
-        save_button = wx.Button(self.form_panel, -1, "Save")
-        import_button = wx.Button(self.form_panel, -1, "Import..")
-        save_button.Bind(wx.EVT_BUTTON, self.onSaveButtonClick)
-        cancel_button.Bind(wx.EVT_BUTTON, self.onCancelButtonClick)
-        import_button.Bind(wx.EVT_BUTTON, self.onImportButtonClick)
-        add_button.Bind(wx.EVT_BUTTON, self.onAddButtonClick)
-        form_sizer.AddMany([add_button, import_button])
-        form_sizer.AddMany([cancel_button, save_button])
-        form_box_sizer.Add(form_sizer, 1, flag=wx.EXPAND|wx.ALL)
-        self.form_panel.SetSizer(form_box_sizer)
-
-        hbox = wx.BoxSizer(wx.HORIZONTAL)
-        hbox.Add(self.data_panel, 1, flag=wx.EXPAND|wx.ALL)
-        hbox.Add(self.form_panel, flag=wx.ALL|wx.EXPAND)
-        self.SetSizer(hbox)
-
-        self.Bind(wx.EVT_CLOSE, self.onClose)
-
-    def onClose(self, event):
-        self.EndModal(wx.ID_CANCEL)
-        self.Destroy()
-
-    def onCancelButtonClick(self, event):
-        self.EndModal(wx.ID_CANCEL)
-        self.Destroy()
-
-    def onSaveButtonClick(self, event):
-        self.EndModal(wx.ID_OK)
-        self.Destroy()
-
-    def onImportButtonClick(self, event):
-        filepath = None
-        wildcard = "Excel (*.xls;*.xlsx)|*.xls;*.xlsx"
-        with wx.FileDialog(None, "Choose a file", os.getcwd(),
-                           "", wildcard, wx.FC_OPEN) as file_dlg:
-            ret = file_dlg.ShowModal()
-            filepath = file_dlg.GetPath()
-
-        if ret == wx.ID_CANCEL:
-            return
-
-        if filepath:
-            df = pandas.read_excel(filepath, usecols=[0,1,2,3])
-            self.grid_sizer.Remove(0)
-            self.grid.Destroy()
-            self.grid = DataGrid(self.data_panel)
-            self.grid.set_table(df)
-            self.grid_sizer.Add(self.grid, 1, flag=wx.EXPAND|wx.ALL)
-            self.grid_sizer.Layout()
-            self.grid.AutoSize()
-
-    def onAddButtonClick(self, event):
-        self.grid.AppendRows(1)
-
 
 class IndexFieldList(wx.Dialog):
     def __init__(self, choices):
         super(IndexFieldList, self).__init__(None, -1, "Antibiogram Indexes",
-                                             size=(350,800))
+                                             size=(350, 800))
         panel = wx.Panel(self)
         vsizer = wx.BoxSizer(wx.VERTICAL)
         self.chlbox = wx.CheckListBox(panel, choices=choices)
@@ -212,7 +144,7 @@ class IndexFieldList(wx.Dialog):
         hbox.Add(cancelButton, 0, wx.EXPAND | wx.ALL, 2)
         hbox.Add(nextButton, 0, wx.EXPAND | wx.ALL, 2)
 
-        gridbox = wx.GridSizer(2,2,2,2)
+        gridbox = wx.GridSizer(2, 2, 2, 2)
 
         staticBoxSizer.Add(self.all, 0, wx.EXPAND | wx.ALL, 5)
         staticBoxSizer.Add(gridbox, 0, wx.EXPAND | wx.ALL, 5)
@@ -264,7 +196,7 @@ class IndexFieldList(wx.Dialog):
 
 class DateRangeFieldList(wx.Dialog):
     def __init__(self, parent):
-        super(DateRangeFieldList, self).__init__(parent, -1, "Date Range", size=(350,250))
+        super(DateRangeFieldList, self).__init__(parent, -1, "Date Range", size=(350, 250))
         panel = wx.Panel(self)
         vsizer = wx.BoxSizer(wx.VERTICAL)
         self.startDatePicker = DatePickerCtrl(panel, id=wx.ID_ANY, dt=datetime.datetime.now())
@@ -289,7 +221,7 @@ class DateRangeFieldList(wx.Dialog):
         hbox.Add(cancelButton, 0, wx.EXPAND | wx.ALL, 2)
         hbox.Add(nextButton, 0, wx.EXPAND | wx.ALL, 2)
 
-        gridbox = wx.GridSizer(2,2,2,2)
+        gridbox = wx.GridSizer(2, 2, 2, 2)
 
         staticBoxSizer.Add(self.deduplicate, 0, wx.EXPAND | wx.ALL, 5)
         staticBoxSizer.Add(self.all, 0, wx.EXPAND | wx.ALL, 5)
@@ -323,7 +255,7 @@ class DateRangeFieldList(wx.Dialog):
 class HeatmapFieldList(wx.Dialog):
     def __init__(self, choices):
         super(HeatmapFieldList, self).__init__(None, -1, "Antibiogram Heat Map",
-                                             size=(350,800))
+                                               size=(350, 800))
         panel = wx.Panel(self)
         vsizer = wx.BoxSizer(wx.VERTICAL)
         self.chlbox = wx.CheckListBox(panel, choices=choices)
@@ -358,7 +290,7 @@ class HeatmapFieldList(wx.Dialog):
         hbox.Add(cancelButton, 0, wx.EXPAND | wx.ALL, 2)
         hbox.Add(nextButton, 0, wx.EXPAND | wx.ALL, 2)
 
-        gridbox = wx.GridSizer(2,2,2,2)
+        gridbox = wx.GridSizer(2, 2, 2, 2)
 
         staticBoxSizer.Add(self.all, 0, wx.EXPAND | wx.ALL, 5)
         staticBoxSizer.Add(gridbox, 0, wx.EXPAND | wx.ALL, 5)

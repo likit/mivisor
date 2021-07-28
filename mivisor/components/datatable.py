@@ -57,6 +57,19 @@ class DataTable(GridTableBase):
         self.View.ProcessTableMessage(msg)
         return True
 
+    def DeleteRows(self, pos=0, numRows=1):
+        try:
+            idx = self.df.index[pos]
+            self.df.drop(idx, inplace=True)
+            msg = gridlib.GridTableMessage(self,
+                                           gridlib.GRIDTABLE_NOTIFY_ROWS_DELETED,
+                                           pos, numRows)
+            self.View.ProcessTableMessage(msg)
+        except:
+            return False
+        else:
+            return True
+
 
 class DataGrid(wx.grid.Grid):
     def __init__(self, parent):

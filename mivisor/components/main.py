@@ -1,9 +1,10 @@
 import wx
-import os
 import pandas as pd
 from ObjectListView import ObjectListView, ColumnDefn, FastObjectListView
 from threading import Thread
 from pubsub import pub
+
+from components.drug_panel import DrugRegFormDialog
 
 
 class PulseProgressBarDialog(wx.ProgressDialog):
@@ -210,7 +211,7 @@ class MainPanel(wx.Panel):
         copy_button = wx.Button(self, label="Copy Column")
         config_btn = wx.Button(self, label='Config')
         melt_btn = wx.Button(self, label='Melt')
-        load_btn = wx.Button(self, label='Load Drugs')
+        drug_btn = wx.Button(self, label='Drugs')
         generate_btn = wx.Button(self, label='Generate')
         load_button.Bind(wx.EVT_BUTTON, self.open_load_data_dialog)
         save_button.Bind(wx.EVT_BUTTON, self.save_records)
@@ -219,7 +220,7 @@ class MainPanel(wx.Panel):
         config_btn.Bind(wx.EVT_BUTTON, self.configure)
         melt_btn.Bind(wx.EVT_BUTTON, self.melt)
         generate_btn.Bind(wx.EVT_BUTTON, self.generate)
-        load_btn.Bind(wx.EVT_BUTTON, self.load_drug_registry)
+        drug_btn.Bind(wx.EVT_BUTTON, self.open_drug_dialog)
 
         self.dataOlv = FastObjectListView(self, wx.ID_ANY, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
         self.dataOlv.oddRowsBackColor = wx.Colour(230, 230, 230, 100)
@@ -232,7 +233,7 @@ class MainPanel(wx.Panel):
         btn_sizer.Add(copy_button, 0, wx.ALL, 5)
         btn_sizer.Add(config_btn, 0, wx.ALL, 5)
         btn_sizer.Add(melt_btn, 0, wx.ALL, 5)
-        btn_sizer.Add(load_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(drug_btn, 0, wx.ALL, 5)
         btn_sizer.Add(generate_btn, 0, wx.ALL, 5)
         main_sizer.Add(btn_sizer, 0, wx.ALL, 5)
         self.SetSizer(main_sizer)
@@ -264,6 +265,10 @@ class MainPanel(wx.Panel):
                     self.read_data_from_file()
         else:
             self.read_data_from_file()
+
+    def open_drug_dialog(self, event):
+        drug_dlg = DrugRegFormDialog()
+        drug_dlg.ShowModal()
 
     def setColumns(self):
         columns = []
@@ -370,26 +375,6 @@ class MainPanel(wx.Panel):
                 biogram_narst_s = biogram.fillna('-').applymap(str) + " (" + formatted_total + ")"
                 biogram_narst_s = biogram_narst_s.applymap(lambda x: '' if x.startswith('-') else x)
                 biogram_narst_s[self.identifier_col].to_excel('biogram.xlsx')
-
-    def load_drug_registry(self, event):
-        try:
-            drug_df = pd.read_json(os.path.join('drugs.json'))
-        except:
-            return pd.DataFrame(columns=['drug', 'abbreviation', 'group'])
-        else:
-            if drug_df.empty:
-                drug_df = pd.DataFrame(columns=['drug', 'abbreviation', 'group'])
-            else:
-                drug_list = []
-                drug_df = drug_df.sort_values(['group'])
-                for idx, row in drug_df.iterrows():
-                    if row['abbreviation']:
-                        abbrs = [a.strip().upper() for a in row['abbreviation'].split(',')]
-                    else:
-                        abbrs = []
-                    for ab in abbrs:
-                        drug_list.append({'drug': row['drug'], 'abbr': ab, 'group': row['group']})
-                self.drug_data = pd.DataFrame(drug_list)
 
 
 class MainFrame(wx.Frame):
