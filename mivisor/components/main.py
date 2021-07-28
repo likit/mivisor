@@ -4,7 +4,7 @@ from ObjectListView import ObjectListView, ColumnDefn, FastObjectListView
 from threading import Thread
 from pubsub import pub
 
-from components.drug_panel import DrugRegFormDialog
+from components.drug_dialog import DrugRegFormDialog
 
 
 class PulseProgressBarDialog(wx.ProgressDialog):

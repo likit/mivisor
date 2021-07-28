@@ -60,11 +60,8 @@ class DrugRegFormDialog(wx.Dialog):
 
     def onDeleteButtonClick(self, event):
         row_idx = self.grid.GetGridCursorRow()
-        print(row_idx)
-        return
         with wx.MessageDialog(self,
-                              'Do you want to delete index={}: {}?'.format(
-                                  row_idx, self.grid.table.df.iloc[row_idx]['drug']),
+                              'Do you want to delete {}?'.format(self.grid.table.df.iloc[row_idx]['drug']),
                               style=wx.YES_NO) as dlg:
             if dlg.ShowModal() == wx.ID_YES:
                 self.grid.DeleteRows(row_idx)
@@ -73,6 +70,7 @@ class DrugRegFormDialog(wx.Dialog):
         try:
             self.drug_df = pd.read_json(os.path.join('appdata', 'drugs.json'))
             self.grid.set_table(self.drug_df)
+            self.grid.AutoSize()
         except:
             return pd.DataFrame(columns=['drug', 'abbreviation', 'group'])
         else:
