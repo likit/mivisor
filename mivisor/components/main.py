@@ -170,6 +170,7 @@ class MainPanel(wx.Panel):
     def __init__(self, parent):
         wx.Panel.__init__(self, parent=parent, id=wx.ID_ANY)
 
+        self.df = None
         self.colnames = []
         self.organism_col = config.Read('OrganismCol', '')
         self.identifier_col = config.Read('IdentifierCol', '')
@@ -178,14 +179,16 @@ class MainPanel(wx.Panel):
         self.drugs_col = config.Read('Drugs', '').split(';') or []
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        button = wx.Button(self, label="Save")
+        load_button = wx.Button(self, label="Load")
+        save_button = wx.Button(self, label="Save")
         add_button = wx.Button(self, label="Add Column")
         copy_button = wx.Button(self, label="Copy Column")
         config_btn = wx.Button(self, label='Config')
         melt_btn = wx.Button(self, label='Melt')
         load_btn = wx.Button(self, label='Load Drugs')
         generate_btn = wx.Button(self, label='Generate')
-        button.Bind(wx.EVT_BUTTON, self.save_records)
+        load_button.Bind(wx.EVT_BUTTON, self.load_data_from_file)
+        save_button.Bind(wx.EVT_BUTTON, self.save_records)
         add_button.Bind(wx.EVT_BUTTON, self.add_column)
         copy_button.Bind(wx.EVT_BUTTON, self.copy_column)
         config_btn.Bind(wx.EVT_BUTTON, self.configure)
@@ -196,14 +199,10 @@ class MainPanel(wx.Panel):
         self.dataOlv = FastObjectListView(self, wx.ID_ANY, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
         self.dataOlv.oddRowsBackColor = wx.Colour(230, 230, 230, 100)
         self.dataOlv.evenRowsBackColor = wx.WHITE
-        self.df = pd.read_excel('2020-sample.xlsx')
-        self.df = self.df.dropna(how='all').fillna('')
-        self.setColumns()
-        self.data = [DataRow(idx, row) for idx, row in self.df.iterrows()]
-        self.dataOlv.SetObjects(self.data)
         self.dataOlv.cellEditMode = ObjectListView.CELLEDIT_DOUBLECLICK
         main_sizer.Add(self.dataOlv, 1, wx.ALL | wx.EXPAND, 10)
-        btn_sizer.Add(button, 0, wx.ALL, 5)
+        btn_sizer.Add(load_button, 0, wx.ALL, 5)
+        btn_sizer.Add(save_button, 0, wx.ALL, 5)
         btn_sizer.Add(add_button, 0, wx.ALL, 5)
         btn_sizer.Add(copy_button, 0, wx.ALL, 5)
         btn_sizer.Add(config_btn, 0, wx.ALL, 5)
@@ -213,6 +212,15 @@ class MainPanel(wx.Panel):
         main_sizer.Add(btn_sizer, 0, wx.ALL, 5)
         self.SetSizer(main_sizer)
         self.Fit()
+
+
+    def load_data_from_file(self, event):
+        self.df = pd.read_excel('tiny-sample.xlsx')
+        self.df = self.df.dropna(how='all').fillna('')
+        self.setColumns()
+        self.data = [DataRow(idx, row) for idx, row in self.df.iterrows()]
+        self.dataOlv.SetObjects(self.data)
+
 
     def setColumns(self):
         columns = []
