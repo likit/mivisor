@@ -2,7 +2,32 @@ import wx
 import os
 import pandas as pd
 from ObjectListView import ObjectListView, ColumnDefn, FastObjectListView
-from wx.lib.mixins.listctrl import CheckListCtrlMixin
+from threading import Thread
+from pubsub import pub
+
+
+class PulseProgressBarDialog(wx.ProgressDialog):
+    def __init__(self, *args, abort_message='abort'):
+        super(PulseProgressBarDialog, self).__init__(*args, style=wx.PD_AUTO_HIDE | wx.PD_APP_MODAL)
+        pub.subscribe(self.close, 'close_progressbar')
+        while True:
+            self.Pulse()
+
+    def close(self):
+        self.Update(self.Range)
+
+
+class ReadExcelThread(Thread):
+    def __init__(self, filepath, message):
+        super(ReadExcelThread, self).__init__()
+        self._filepath = filepath
+        self._message = message
+        self.start()
+
+    def run(self):
+        df = pd.read_excel(self._filepath)
+        df = df.dropna(how='all').fillna('')
+        wx.CallAfter(pub.sendMessage, self._message, df=df)
 
 
 class DataRow(object):
@@ -170,7 +195,7 @@ class MainPanel(wx.Panel):
     def __init__(self, parent):
         wx.Panel.__init__(self, parent=parent, id=wx.ID_ANY)
 
-        self.df = None
+        self.df = pd.DataFrame()
         self.colnames = []
         self.organism_col = config.Read('OrganismCol', '')
         self.identifier_col = config.Read('IdentifierCol', '')
@@ -187,7 +212,7 @@ class MainPanel(wx.Panel):
         melt_btn = wx.Button(self, label='Melt')
         load_btn = wx.Button(self, label='Load Drugs')
         generate_btn = wx.Button(self, label='Generate')
-        load_button.Bind(wx.EVT_BUTTON, self.load_data_from_file)
+        load_button.Bind(wx.EVT_BUTTON, self.open_load_data_dialog)
         save_button.Bind(wx.EVT_BUTTON, self.save_records)
         add_button.Bind(wx.EVT_BUTTON, self.add_column)
         copy_button.Bind(wx.EVT_BUTTON, self.copy_column)
@@ -213,14 +238,32 @@ class MainPanel(wx.Panel):
         self.SetSizer(main_sizer)
         self.Fit()
 
-
-    def load_data_from_file(self, event):
-        self.df = pd.read_excel('tiny-sample.xlsx')
+    def set_data_olv(self, df):
+        self.df = df
         self.df = self.df.dropna(how='all').fillna('')
         self.setColumns()
         self.data = [DataRow(idx, row) for idx, row in self.df.iterrows()]
         self.dataOlv.SetObjects(self.data)
+        pub.sendMessage('close_progressbar')
 
+    def read_data_from_file(self):
+        with wx.FileDialog(self, "Load data from file",
+                           style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST,
+                           wildcard="Excel file (*.xlsx)|*.xlsx") as file_dialog:
+            if file_dialog.ShowModal() == wx.ID_CANCEL:
+                return
+            filepath = file_dialog.GetPath()
+            pub.subscribe(self.set_data_olv, 'load_excel_data_finished')
+            ReadExcelThread(filepath, 'load_excel_data_finished')
+            progress_bar = PulseProgressBarDialog('Progress Bar', 'Reading data from {}'.format(filepath))
+
+    def open_load_data_dialog(self, event):
+        if not self.df.empty:
+            with wx.MessageDialog(self, "Load new dataset?", "Load data", style=wx.YES_NO) as msg_dialog:
+                if msg_dialog.ShowModal() == wx.ID_YES:
+                    self.read_data_from_file()
+        else:
+            self.read_data_from_file()
 
     def setColumns(self):
         columns = []
@@ -230,7 +273,7 @@ class MainPanel(wx.Panel):
             if col_type.startswith('int') or col_type.startswith('float'):
                 formatter = '%.1f'
             elif col_type.startswith('datetime'):
-                formatter = '%s'
+                formatter = '%Y-%m-%d'
             else:
                 formatter = '%s'
             columns.append(
@@ -320,9 +363,9 @@ class MainPanel(wx.Panel):
                 indexes = [columns[idx] for idx in dlg.indexes]
                 total = _melted_df.pivot_table(index=indexes, columns=['group', 'variable'], aggfunc='count')
                 sens = _melted_df[_melted_df['value'] == 'S'].pivot_table(index=indexes,
-                                                                                  columns=['group', 'variable'],
-                                                                                  aggfunc='count')
-                biogram = (sens/total*100).applymap(lambda x: round(x, 2))
+                                                                          columns=['group', 'variable'],
+                                                                          aggfunc='count')
+                biogram = (sens / total * 100).applymap(lambda x: round(x, 2))
                 formatted_total = total.applymap(lambda x: '' if pd.isna(x) else '{:.0f}'.format(x))
                 biogram_narst_s = biogram.fillna('-').applymap(str) + " (" + formatted_total + ")"
                 biogram_narst_s = biogram_narst_s.applymap(lambda x: '' if x.startswith('-') else x)
@@ -370,4 +413,3 @@ class GenApp(wx.App):
         frame = MainFrame()
         frame.Show()
         return True
-
