@@ -6,12 +6,10 @@ try:
 except:
     pass
 
-from components.main import MainWindow
+from components.main import GenApp
 
 def main():
-    app = wx.App()
-    mw = MainWindow(None)
-    mw.Show()
+    app = GenApp()
     app.MainLoop()
 
 
