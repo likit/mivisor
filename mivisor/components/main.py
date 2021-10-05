@@ -226,9 +226,28 @@ class DeduplicateIndexDialog(wx.Dialog):
             self.keys.append(item)
 
 
-class MainPanel(wx.Panel):
-    def __init__(self, parent):
-        wx.Panel.__init__(self, parent=parent, id=wx.ID_ANY)
+class MainFrame(wx.Frame):
+    def __init__(self):
+        wx.Frame.__init__(self, parent=None, id=wx.ID_ANY,
+                          title="Mivisor Version 2021.1", size=(800, 600))
+        panel = wx.Panel(self)
+        # TODO: figure out how to update the statusbar's text from the frame's children
+        self.statusbar = self.CreateStatusBar(2)
+        self.statusbar.SetStatusText('The app is ready to roll.')
+        self.statusbar.SetStatusText('This is for the analytics information', 1)
+        menuBar = wx.MenuBar()
+        fileMenu = wx.Menu()
+        registryMenu = wx.Menu()
+        menuBar.Append(fileMenu, '&File')
+        menuBar.Append(registryMenu, 'Re&gistry')
+        fileItem = fileMenu.Append(wx.ID_EXIT, 'Quit', 'Quit Application')
+        drugItem = registryMenu.Append(wx.ID_ANY, 'Drugs', 'Drug Registry')
+        self.SetMenuBar(menuBar)
+        self.Bind(wx.EVT_MENU, lambda x: self.Close(), fileItem)
+        self.Bind(wx.EVT_MENU, self.open_drug_dialog, drugItem)
+
+        self.Bind(wx.EVT_CLOSE, self.OnClose)
+        self.Center()
 
         self.load_drug_data()
 
@@ -242,33 +261,50 @@ class MainPanel(wx.Panel):
         self.drugs_col = config.Read('Drugs', '').split(';') or []
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        load_button = wx.Button(self, label="Load")
-        copy_button = wx.Button(self, label="Copy Column")
-        config_btn = wx.Button(self, label='Config')
-        melt_btn = wx.Button(self, label='Melt')
-        drug_btn = wx.Button(self, label='Drugs')
-        generate_btn = wx.Button(self, label='Generate')
+        load_button = wx.Button(panel, label="Load")
+        self.copy_button = wx.Button(panel, label="Copy Column")
+        self.config_btn = wx.Button(panel, label='Config')
+        self.generate_btn = wx.Button(panel, label='Generate')
         load_button.Bind(wx.EVT_BUTTON, self.open_load_data_dialog)
-        copy_button.Bind(wx.EVT_BUTTON, self.copy_column)
-        config_btn.Bind(wx.EVT_BUTTON, self.configure)
-        melt_btn.Bind(wx.EVT_BUTTON, self.onMelt)
-        generate_btn.Bind(wx.EVT_BUTTON, self.generate)
-        drug_btn.Bind(wx.EVT_BUTTON, self.open_drug_dialog)
+        self.copy_button.Bind(wx.EVT_BUTTON, self.copy_column)
+        self.config_btn.Bind(wx.EVT_BUTTON, self.configure)
+        self.generate_btn.Bind(wx.EVT_BUTTON, self.generate)
 
-        self.dataOlv = FastObjectListView(self, wx.ID_ANY, style=wx.LC_REPORT | wx.SUNKEN_BORDER)
+        self.dataOlv = FastObjectListView(panel, wx.ID_ANY,
+                                          style=wx.LC_REPORT | wx.SUNKEN_BORDER)
         self.dataOlv.oddRowsBackColor = wx.Colour(230, 230, 230, 100)
         self.dataOlv.evenRowsBackColor = wx.WHITE
         self.dataOlv.cellEditMode = ObjectListView.CELLEDIT_DOUBLECLICK
         main_sizer.Add(self.dataOlv, 1, wx.ALL | wx.EXPAND, 10)
         btn_sizer.Add(load_button, 0, wx.ALL, 5)
-        btn_sizer.Add(copy_button, 0, wx.ALL, 5)
-        btn_sizer.Add(config_btn, 0, wx.ALL, 5)
-        btn_sizer.Add(melt_btn, 0, wx.ALL, 5)
-        btn_sizer.Add(drug_btn, 0, wx.ALL, 5)
-        btn_sizer.Add(generate_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(self.copy_button, 0, wx.ALL, 5)
+        btn_sizer.Add(self.config_btn, 0, wx.ALL, 5)
+        btn_sizer.Add(self.generate_btn, 0, wx.ALL, 5)
         main_sizer.Add(btn_sizer, 0, wx.ALL, 5)
-        self.SetSizer(main_sizer)
-        self.Fit()
+        panel.SetSizer(main_sizer)
+        panel.Fit()
+
+        self.disable_buttons()
+
+        pub.subscribe(self.disable_buttons, 'disable_buttons')
+        pub.subscribe(self.enable_buttons, 'enable_buttons')
+
+    def OnClose(self, event):
+        if event.CanVeto():
+            if wx.MessageBox('You want to quit the program?', 'Please confirm', style=wx.YES_NO) != wx.YES:
+                event.Veto()
+                return
+        event.Skip()
+
+    def disable_buttons(self):
+        self.generate_btn.Disable()
+        self.copy_button.Disable()
+        self.config_btn.Disable()
+
+    def enable_buttons(self):
+        self.generate_btn.Enable()
+        self.copy_button.Enable()
+        self.config_btn.Enable()
 
     def load_drug_data(self):
         try:
@@ -296,6 +332,7 @@ class MainPanel(wx.Panel):
         self.data = [DataRow(idx, row) for idx, row in self.df.iterrows()]
         self.dataOlv.SetObjects(self.data)
         pub.sendMessage('close_progressbar')
+        pub.sendMessage('enable_buttons')
 
     def read_data_from_file(self):
         with wx.FileDialog(self, "Load data from file",
@@ -309,6 +346,7 @@ class MainPanel(wx.Panel):
             progress_bar = PulseProgressBarDialog('Progress Bar', 'Reading data from {}'.format(filepath))
 
     def open_load_data_dialog(self, event):
+        pub.sendMessage('disable_buttons')
         if not self.df.empty:
             with wx.MessageDialog(self, "Load new dataset?", "Load data", style=wx.YES_NO) as msg_dialog:
                 if msg_dialog.ShowModal() == wx.ID_YES:
@@ -390,10 +428,6 @@ class MainPanel(wx.Panel):
         df = pd.DataFrame(data=data, index=ids, columns=self.colnames)
         return df.melt(id_vars=keys)
 
-    def onMelt(self, event):
-        melted_df = self.melt()
-        print(melted_df)
-
     def generate(self, event):
         if self.df.empty:
             with wx.MessageDialog(self, 'No data provided. Please load data from an Excel file',
@@ -416,6 +450,8 @@ class MainPanel(wx.Panel):
                     message = f'{ num_rows - len(data) } duplicates were removed.'
                 with wx.MessageDialog(self, message, 'Deduplication Finished', style=wx.OK) as dlg:
                     dlg.ShowModal()
+            else:
+                return
         keys = []
         for c in self.colnames:
             if c not in self.drugs_col:
@@ -426,6 +462,7 @@ class MainPanel(wx.Panel):
             columns.remove(self.identifier_col)
         if self.date_col in columns:
             columns.remove(self.date_col)
+
         with BiogramIndexDialog(self, columns) as dlg:
             if dlg.ShowModal() == wx.ID_OK and dlg.indexes:
                 # TODO: remove hard-coded organism file
@@ -457,26 +494,6 @@ class MainPanel(wx.Panel):
                         with wx.MessageDialog(self, 'Output Saved.', 'Antibiogram Generator', style=wx.OK) as dlg:
                             if dlg.ShowModal() == wx.ID_OK:
                                 return
-
-
-class MainFrame(wx.Frame):
-    def __init__(self):
-        wx.Frame.__init__(self, parent=None, id=wx.ID_ANY,
-                          title="Mivisor Version 2021.1", size=(800, 600))
-        self.panel = MainPanel(self)
-        # TODO: figure out how to update the statusbar's text from the frame's children
-        self.statusbar = self.CreateStatusBar(2)
-        self.statusbar.SetStatusText('The app is ready to roll.')
-        self.statusbar.SetStatusText('This is for the analytics information', 1)
-
-        self.Bind(wx.EVT_CLOSE, self.OnClose)
-
-    def OnClose(self, event):
-        if event.CanVeto():
-            if wx.MessageBox('You want to quit the program?', 'Please confirm', style=wx.YES_NO) != wx.YES:
-                event.Veto()
-                return
-        event.Skip()
 
 
 class GenApp(wx.App):
