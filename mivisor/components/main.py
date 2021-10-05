@@ -3,6 +3,7 @@ import os
 import wx
 import wx.adv
 import pandas as pd
+import xlsxwriter
 from ObjectListView import ObjectListView, ColumnDefn, FastObjectListView
 from threading import Thread
 from pubsub import pub
@@ -66,10 +67,21 @@ class BiogramIndexDialog(wx.Dialog):
         dateBoxSizer.Add(self.startDate, 0, wx.ALL, 5)
         dateBoxSizer.Add(endDateLabel, 0, wx.ALL, 5)
         dateBoxSizer.Add(self.endDate, 0, wx.ALL, 5)
+        outputBoxSizer = wx.StaticBoxSizer(wx.VERTICAL, self, label='Output')
+        self.includeCount = wx.CheckBox(self, label='Raw counts')
+        self.includePercent = wx.CheckBox(self, label='Percents')
+        self.includeNarstStyle = wx.CheckBox(self, label='NARST format')
+        self.includeCount.SetValue(True)
+        self.includePercent.SetValue(True)
+        self.includeNarstStyle.SetValue(True)
+        outputBoxSizer.Add(self.includeCount, 0, wx.ALL, 5)
+        outputBoxSizer.Add(self.includePercent, 0, wx.ALL, 5)
+        outputBoxSizer.Add(self.includeNarstStyle, 0, wx.ALL, 5)
         main_sizer.Add(instruction, 0, wx.ALL, 5)
         main_sizer.Add(self.chlbox, 1, wx.ALL | wx.EXPAND, 10)
         main_sizer.Add(self.index_items_list, 1, wx.ALL | wx.EXPAND, 10)
-        main_sizer.Add(dateBoxSizer, 0, wx.ALL, 5)
+        main_sizer.Add(dateBoxSizer, 0, wx.ALL | wx.EXPAND, 5)
+        main_sizer.Add(outputBoxSizer, 0, wx.ALL | wx.EXPAND, 5)
         btn_sizer = wx.StdDialogButtonSizer()
         ok_btn = wx.Button(self, id=wx.ID_OK, label='Generate')
         ok_btn.SetDefault()
@@ -479,6 +491,10 @@ class MainFrame(wx.Frame):
                                 start=data[self.date_col].min(),
                                 end=data[self.date_col].max()) as dlg:
             if dlg.ShowModal() == wx.ID_OK and dlg.indexes:
+                include_narst = dlg.includeNarstStyle.GetValue()
+                include_count = dlg.includeCount.GetValue()
+                include_percent = dlg.includePercent.GetValue()
+                print(include_percent, include_count, include_narst)
                 # TODO: remove hard-coded organism file
                 organism_df = pd.read_excel('organisms2020.xlsx')
 
@@ -496,9 +512,12 @@ class MainFrame(wx.Frame):
                 sens = _melted_df[_melted_df['value'] == 'S'].pivot_table(index=indexes,
                                                                           columns=['group', 'variable'],
                                                                           aggfunc='count')
-                biogram = (sens / total * 100).applymap(lambda x: round(x, 2))
+                resists = _melted_df[(_melted_df['value'] == 'I') | (_melted_df['value'] == 'R')]\
+                    .pivot_table(index=indexes, columns=['group', 'variable'], aggfunc='count')
+                biogram_resists = (resists / total * 100).applymap(lambda x: round(x, 2))
+                biogram_sens = (sens / total * 100).applymap(lambda x: round(x, 2))
                 formatted_total = total.applymap(lambda x: '' if pd.isna(x) else '{:.0f}'.format(x))
-                biogram_narst_s = biogram.fillna('-').applymap(str) + " (" + formatted_total + ")"
+                biogram_narst_s = biogram_sens.fillna('-').applymap(str) + " (" + formatted_total + ")"
                 biogram_narst_s = biogram_narst_s.applymap(lambda x: '' if x.startswith('-') else x)
                 with wx.FileDialog(self, "Please select the output file for your antibiogram",
                                    wildcard="Excel file (*xlsx)|*xlsx",
@@ -507,7 +526,15 @@ class MainFrame(wx.Frame):
                         return
                     file_path = file_dialog.GetPath()
                     try:
-                        biogram_narst_s[self.identifier_col].to_excel(file_path)
+                        with pd.ExcelWriter(file_path, engine='xlsxwriter') as writer:
+                            if include_count:
+                                sens[self.identifier_col].to_excel(writer, sheet_name='count_S')
+                                resists[self.identifier_col].to_excel(writer, sheet_name='count_R')
+                            if include_percent:
+                                biogram_sens[self.identifier_col].to_excel(writer, sheet_name='percent_S')
+                                biogram_resists[self.identifier_col].to_excel(writer, sheet_name='percent_R')
+                            if include_narst:
+                                biogram_narst_s[self.identifier_col].to_excel(writer, sheet_name='narst_s')
                     except:
                         with wx.MessageDialog(self, 'Failed', 'Antibiogram Generator', style=wx.OK) as dlg:
                             if dlg.ShowModal() == wx.ID_OK:
