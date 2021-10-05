@@ -46,13 +46,13 @@ class DataRow(object):
 
 class BiogramIndexDialog(wx.Dialog):
     def __init__(self, parent, columns, title='Biogram Indexes'):
-        super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER, size=(640,640))
+        super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.indexes = []
         self.choices = columns
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         self.chlbox = wx.CheckListBox(self, choices=columns)
         self.chlbox.Bind(wx.EVT_CHECKLISTBOX, self.on_checked)
-        self.index_items_list = wx.ListCtrl(self, wx.ID_ANY, style=wx.LC_REPORT, size=(200, 200))
+        self.index_items_list = wx.ListCtrl(self, wx.ID_ANY, style=wx.LC_REPORT, size=(300, 200))
         self.index_items_list.AppendColumn('Level')
         self.index_items_list.AppendColumn('Attribute')
         main_sizer.Add(self.chlbox, 1, wx.ALL | wx.EXPAND, 10)
@@ -195,6 +195,33 @@ class ConfigDialog(wx.Dialog):
         main_sizer.SetSizeHints(self)
         self.SetSizer(main_sizer)
         main_sizer.Fit(self)
+
+
+class DeduplicateIndexDialog(wx.Dialog):
+    def __init__(self, parent, columns, title='Deduplication Keys'):
+        super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        self.keys = []
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        instruction = wx.StaticText(self, label='Select columns you want to use for deduplication.')
+        self.isSortDate = wx.CheckBox(self, label='Sort by the date column')
+        self.isSortDate.SetValue(True)
+        self.chlbox = wx.CheckListBox(self, choices=columns)
+        self.chlbox.Bind(wx.EVT_CHECKLISTBOX, self.on_checked)
+        button_sizer = self.CreateStdDialogButtonSizer(flags=wx.OK | wx.CANCEL)
+        main_sizer.Add(instruction, 0, wx.ALL, 5)
+        main_sizer.Add(self.chlbox, 1, wx.ALL | wx.EXPAND, 5)
+        main_sizer.Add(self.isSortDate, 0, wx.ALL, 5)
+        main_sizer.Add(button_sizer, 0, wx.ALL, 5)
+        self.SetSizer(main_sizer)
+        self.Fit()
+
+    def on_checked(self, event):
+        item = event.GetInt()
+        if not self.chlbox.IsChecked(item):
+            idx = self.keys.index(item)
+            self.keys.remove(item)
+        else:
+            self.keys.append(item)
 
 
 class MainPanel(wx.Panel):
@@ -349,26 +376,47 @@ class MainPanel(wx.Panel):
                 config.Write('SpecimensCol', self.specimens_col)
                 config.Write('Drugs', ';'.join(self.drugs_col))
 
-    def melt(self):
+    def melt(self, source_data=None):
+        if source_data is None:
+            source_data = self.data
         keys = []
         for c in self.colnames:
             if c not in self.drugs_col:
                 keys.append(c)
-        data = [row.to_list(self.colnames) for row in self.data]
-        ids = [row.id for row in self.data]
+        data = [row.to_list(self.colnames) for row in source_data]
+        ids = [row.id for row in data]
         df = pd.DataFrame(data=data, index=ids, columns=self.colnames)
         return df.melt(id_vars=keys)
 
     def onMelt(self, event):
         melted_df = self.melt()
+        print(melted_df)
 
     def generate(self, event):
-        melted_df = self.melt()
-        if melted_df.empty:
+        if self.df.empty:
             with wx.MessageDialog(self, 'No data provided. Please load data from an Excel file',
                                   'Error', style=wx.OK) as dlg:
                 if dlg.ShowModal() == wx.ID_OK:
                     return
+        num_rows = len(self.df)
+        with DeduplicateIndexDialog(self, [c for c in self.colnames if c not in self.drugs_col]) as dlg:
+            if dlg.ShowModal() == wx.ID_OK:
+                data = self.df
+                if dlg.isSortDate.GetValue():
+                    data = data.sort_values(config.Read('DateCol'), ascending=True)
+                    print('sorted done.')
+                data = data.drop_duplicates(subset=[self.colnames[k] for k in dlg.keys], keep='first')
+                if num_rows == len(data):
+                    message = 'No duplicates found.'
+                else:
+                    message = f'{ num_rows - len(data) } duplicates were removed.'
+                with wx.MessageDialog(self, message, 'Deduplication Finished', style=wx.OK) as dlg:
+                    dlg.ShowModal()
+        keys = []
+        for c in self.colnames:
+            if c not in self.drugs_col:
+                keys.append(c)
+        melted_df = data.melt(id_vars=keys)
         columns = [c for c in self.colnames if c not in self.drugs_col] + ['GENUS', 'SPECIES', 'GRAM']
         if self.identifier_col in columns:
             columns.remove(self.identifier_col)
