@@ -46,14 +46,16 @@ class DataRow(object):
 
 class BiogramIndexDialog(wx.Dialog):
     def __init__(self, parent, columns, title='Biogram Indexes'):
-        super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER, size=(640,640))
         self.indexes = []
         self.choices = columns
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         self.chlbox = wx.CheckListBox(self, choices=columns)
         self.chlbox.Bind(wx.EVT_CHECKLISTBOX, self.on_checked)
-        self.index_items_list = wx.ListCtrl(self, wx.ID_ANY, style=wx.LC_LIST)
-        main_sizer.Add(self.chlbox, 0, wx.ALL | wx.EXPAND, 10)
+        self.index_items_list = wx.ListCtrl(self, wx.ID_ANY, style=wx.LC_REPORT, size=(200, 200))
+        self.index_items_list.AppendColumn('Level')
+        self.index_items_list.AppendColumn('Attribute')
+        main_sizer.Add(self.chlbox, 1, wx.ALL | wx.EXPAND, 10)
         main_sizer.Add(self.index_items_list, 1, wx.ALL | wx.EXPAND, 10)
         btn_sizer = wx.StdDialogButtonSizer()
         ok_btn = wx.Button(self, id=wx.ID_OK, label='Generate')
@@ -75,7 +77,7 @@ class BiogramIndexDialog(wx.Dialog):
             self.indexes.remove(item)
         else:
             self.indexes.append(item)
-            self.index_items_list.Append([self.choices[item]])
+            self.index_items_list.Append([len(self.indexes), self.choices[item]])
 
 
 class NewColumnDialog(wx.Dialog):
