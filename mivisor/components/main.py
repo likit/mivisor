@@ -384,11 +384,22 @@ class MainPanel(wx.Panel):
                 formatted_total = total.applymap(lambda x: '' if pd.isna(x) else '{:.0f}'.format(x))
                 biogram_narst_s = biogram.fillna('-').applymap(str) + " (" + formatted_total + ")"
                 biogram_narst_s = biogram_narst_s.applymap(lambda x: '' if x.startswith('-') else x)
-                # TODO: remove hard-coded output file
-                biogram_narst_s[self.identifier_col].to_excel('biogram.xlsx')
-                with wx.MessageDialog(self, 'Done', 'Antibiogram Generator', style=wx.OK) as dlg:
-                    if dlg.ShowModal() == wx.ID_OK:
+                with wx.FileDialog(self, "Please select the output file for your antibiogram",
+                                   wildcard="Excel file (*xlsx)|*xlsx",
+                                   style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as file_dialog:
+                    if file_dialog.ShowModal() == wx.ID_CANCEL:
                         return
+                    file_path = file_dialog.GetPath()
+                    try:
+                        biogram_narst_s[self.identifier_col].to_excel(file_path)
+                    except:
+                        with wx.MessageDialog(self, 'Failed', 'Antibiogram Generator', style=wx.OK) as dlg:
+                            if dlg.ShowModal() == wx.ID_OK:
+                                return
+                    else:
+                        with wx.MessageDialog(self, 'Output Saved.', 'Antibiogram Generator', style=wx.OK) as dlg:
+                            if dlg.ShowModal() == wx.ID_OK:
+                                return
 
 
 class MainFrame(wx.Frame):
