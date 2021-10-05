@@ -61,7 +61,7 @@ class BiogramGeneratorThread(Thread):
 
     def run(self):
         # TODO: remove hard-coded organism file
-        organism_df = pd.read_excel('organisms2020.xlsx')
+        organism_df = pd.read_excel(os.path.join('appdata', 'organisms2020.xlsx'))
 
         melted_df = self.data.melt(id_vars=self.keys)
         _melted_df = pd.merge(melted_df, organism_df, how='inner')
@@ -561,7 +561,9 @@ class MainFrame(wx.Frame):
                                        dlg.includeNarstStyle.GetValue(),
                                        columns,
                                        self.drug_data)
-            progress_bar = PulseProgressBarDialog('Generating Antibiogram', 'Calculating...')
+                progress_bar = PulseProgressBarDialog('Generating Antibiogram', 'Calculating...')
+            else:
+                return
 
     def write_output(self, sens, resists, biogram_sens, biogram_resists, biogram_narst_s,
                      identifier_col):
