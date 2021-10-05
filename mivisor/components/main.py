@@ -208,7 +208,6 @@ class MainPanel(wx.Panel):
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         load_button = wx.Button(self, label="Load")
-        save_button = wx.Button(self, label="Save")
         add_button = wx.Button(self, label="Add Column")
         copy_button = wx.Button(self, label="Copy Column")
         config_btn = wx.Button(self, label='Config')
@@ -216,7 +215,6 @@ class MainPanel(wx.Panel):
         drug_btn = wx.Button(self, label='Drugs')
         generate_btn = wx.Button(self, label='Generate')
         load_button.Bind(wx.EVT_BUTTON, self.open_load_data_dialog)
-        save_button.Bind(wx.EVT_BUTTON, self.save_records)
         add_button.Bind(wx.EVT_BUTTON, self.add_column)
         copy_button.Bind(wx.EVT_BUTTON, self.copy_column)
         config_btn.Bind(wx.EVT_BUTTON, self.configure)
@@ -230,7 +228,6 @@ class MainPanel(wx.Panel):
         self.dataOlv.cellEditMode = ObjectListView.CELLEDIT_DOUBLECLICK
         main_sizer.Add(self.dataOlv, 1, wx.ALL | wx.EXPAND, 10)
         btn_sizer.Add(load_button, 0, wx.ALL, 5)
-        btn_sizer.Add(save_button, 0, wx.ALL, 5)
         btn_sizer.Add(add_button, 0, wx.ALL, 5)
         btn_sizer.Add(copy_button, 0, wx.ALL, 5)
         btn_sizer.Add(config_btn, 0, wx.ALL, 5)
@@ -285,13 +282,6 @@ class MainPanel(wx.Panel):
             columns.append(
                 ColumnDefn(title=c.title(), align='left', stringConverter=formatter, valueGetter=c, minimumWidth=50))
         self.dataOlv.SetColumns(columns)
-
-    def save_records(self, event):
-        data = [row.to_list(self.colnames) for row in self.data]
-        ids = [row.id for row in self.data]
-        df = pd.DataFrame(data=data, index=ids, columns=self.colnames)
-        dask_df = dd.from_pandas(df, npartitions=2)
-        print(dask_df)
 
     def add_column(self, event):
         self.dataOlv.AddColumnDefn(ColumnDefn(
@@ -409,7 +399,7 @@ class MainFrame(wx.Frame):
         panel = MainPanel(self)
         self.statusbar = self.CreateStatusBar(2)
         self.statusbar.SetStatusText('The app is ready to roll.')
-        self.statusbar.SetStatusText('The is for the analytics information', 1)
+        self.statusbar.SetStatusText('This is for the analytics information', 1)
 
 
 class GenApp(wx.App):
