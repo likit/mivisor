@@ -1,3 +1,5 @@
+import os
+
 import wx
 import pandas as pd
 from ObjectListView import ObjectListView, ColumnDefn, FastObjectListView
@@ -9,13 +11,14 @@ from components.drug_dialog import DrugRegFormDialog
 
 class PulseProgressBarDialog(wx.ProgressDialog):
     def __init__(self, *args, abort_message='abort'):
-        super(PulseProgressBarDialog, self).__init__(*args, style=wx.PD_AUTO_HIDE | wx.PD_APP_MODAL)
+        super(PulseProgressBarDialog, self)\
+            .__init__(*args, style=wx.PD_AUTO_HIDE | wx.PD_APP_MODAL)
         pub.subscribe(self.close, 'close_progressbar')
-        while True:
+        while self.GetValue() != self.GetRange():
             self.Pulse()
 
     def close(self):
-        self.Update(self.Range)
+        self.Update(self.GetRange())
 
 
 class ReadExcelThread(Thread):
@@ -196,7 +199,8 @@ class MainPanel(wx.Panel):
     def __init__(self, parent):
         wx.Panel.__init__(self, parent=parent, id=wx.ID_ANY)
 
-        self.drug_dlg = DrugRegFormDialog()
+        self.load_drug_data()
+
         self.df = pd.DataFrame()
         self.data = []
         self.colnames = []
@@ -235,6 +239,25 @@ class MainPanel(wx.Panel):
         self.SetSizer(main_sizer)
         self.Fit()
 
+    def load_drug_data(self):
+        try:
+            drug_df = pd.read_json(os.path.join('appdata', 'drugs.json'))
+        except:
+            pass
+        if drug_df.empty:
+            drug_df = pd.DataFrame(columns=['drug', 'abbreviation', 'group'])
+
+        drug_list = []
+        drug_df = drug_df.sort_values(['group'])
+        for idx, row in drug_df.iterrows():
+            if row['abbreviation']:
+                abbrs = [a.strip().upper() for a in row['abbreviation'].split(',')]
+            else:
+                abbrs = []
+            for ab in abbrs:
+                drug_list.append({'drug': row['drug'], 'abbr': ab, 'group': row['group']})
+        self.drug_data = pd.DataFrame(drug_list)
+
     def set_data_olv(self, df):
         self.df = df
         self.df = self.df.dropna(how='all').fillna('')
@@ -263,7 +286,8 @@ class MainPanel(wx.Panel):
             self.read_data_from_file()
 
     def open_drug_dialog(self, event):
-        self.drug_dlg.ShowModal()
+        with DrugRegFormDialog() as drug_dlg:
+            drug_dlg.ShowModal()
 
     def setColumns(self):
         columns = []
@@ -308,10 +332,14 @@ class MainPanel(wx.Panel):
     def configure(self, event):
         with ConfigDialog(self, self.colnames) as dlg:
             if dlg.ShowModal() == wx.ID_OK:
-                self.identifier_col = self.colnames[dlg.identifier_combo_ctrl.GetSelection()]
-                self.date_col = self.colnames[dlg.date_combo_ctrl.GetSelection()]
-                self.organism_col = self.colnames[dlg.organism_combo_ctrl.GetSelection()]
-                self.specimens_col = self.colnames[dlg.specimens_combo_ctrl.GetSelection()]
+                if dlg.identifier_combo_ctrl.GetSelection() != -1:
+                    self.identifier_col = self.colnames[dlg.identifier_combo_ctrl.GetSelection()]
+                if dlg.date_combo_ctrl.GetSelection() != -1:
+                    self.date_col = self.colnames[dlg.date_combo_ctrl.GetSelection()]
+                if dlg.organism_combo_ctrl.GetSelection() != -1:
+                    self.organism_col = self.colnames[dlg.organism_combo_ctrl.GetSelection()]
+                if dlg.specimens_combo_ctrl.GetSelection() != -1:
+                    self.specimens_col = self.colnames[dlg.specimens_combo_ctrl.GetSelection()]
                 self.drugs_col = dlg.drug_listctrl.drugs
                 config.Write('IdentifierCol', self.identifier_col)
                 config.Write('DateCol', self.date_col)
@@ -331,7 +359,6 @@ class MainPanel(wx.Panel):
 
     def onMelt(self, event):
         melted_df = self.melt()
-        print(melted_df)
 
     def generate(self, event):
         melted_df = self.melt()
@@ -350,7 +377,7 @@ class MainPanel(wx.Panel):
                 # TODO: remove hard-coded organism file
                 organism_df = pd.read_excel('organisms2020.xlsx')
                 _melted_df = pd.merge(melted_df, organism_df, how='inner')
-                _melted_df = pd.merge(_melted_df, self.drug_dlg.drug_data, right_on='abbr', left_on='variable', how='outer')
+                _melted_df = pd.merge(_melted_df, self.drug_data, right_on='abbr', left_on='variable', how='outer')
                 indexes = [columns[idx] for idx in dlg.indexes]
                 total = _melted_df.pivot_table(index=indexes, columns=['group', 'variable'], aggfunc='count')
                 sens = _melted_df[_melted_df['value'] == 'S'].pivot_table(index=indexes,
@@ -381,11 +408,21 @@ class MainPanel(wx.Panel):
 class MainFrame(wx.Frame):
     def __init__(self):
         wx.Frame.__init__(self, parent=None, id=wx.ID_ANY,
-                          title="ObjectListView Demo", size=(800, 600))
-        panel = MainPanel(self)
+                          title="Mivisor Version 2021.1", size=(800, 600))
+        self.panel = MainPanel(self)
+        # TODO: figure out how to update the statusbar's text from the frame's children
         self.statusbar = self.CreateStatusBar(2)
         self.statusbar.SetStatusText('The app is ready to roll.')
         self.statusbar.SetStatusText('This is for the analytics information', 1)
+
+        self.Bind(wx.EVT_CLOSE, self.OnClose)
+
+    def OnClose(self, event):
+        if event.CanVeto():
+            if wx.MessageBox('You want to quit the program?', 'Please confirm', style=wx.YES_NO) != wx.YES:
+                event.Veto()
+                return
+        event.Skip()
 
 
 class GenApp(wx.App):
@@ -397,5 +434,6 @@ class GenApp(wx.App):
         global config
         config = wx.Config('Mivisor')
         frame = MainFrame()
+        self.SetTopWindow(frame)
         frame.Show()
         return True
