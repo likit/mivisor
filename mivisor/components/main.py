@@ -50,11 +50,13 @@ class BiogramIndexDialog(wx.Dialog):
         self.indexes = []
         self.choices = columns
         main_sizer = wx.BoxSizer(wx.VERTICAL)
+        instruction = wx.StaticText(self, label='Data will be organized in hierarchy based on the order in the list.')
         self.chlbox = wx.CheckListBox(self, choices=columns)
         self.chlbox.Bind(wx.EVT_CHECKLISTBOX, self.on_checked)
         self.index_items_list = wx.ListCtrl(self, wx.ID_ANY, style=wx.LC_REPORT, size=(300, 200))
         self.index_items_list.AppendColumn('Level')
         self.index_items_list.AppendColumn('Attribute')
+        main_sizer.Add(instruction, 0, wx.ALL, 5)
         main_sizer.Add(self.chlbox, 1, wx.ALL | wx.EXPAND, 10)
         main_sizer.Add(self.index_items_list, 1, wx.ALL | wx.EXPAND, 10)
         btn_sizer = wx.StdDialogButtonSizer()
@@ -399,13 +401,15 @@ class MainPanel(wx.Panel):
                 if dlg.ShowModal() == wx.ID_OK:
                     return
         num_rows = len(self.df)
-        with DeduplicateIndexDialog(self, [c for c in self.colnames if c not in self.drugs_col]) as dlg:
+        with DeduplicateIndexDialog(self, [c for c in self.colnames
+                                           if c not in self.drugs_col]) as dlg:
             if dlg.ShowModal() == wx.ID_OK:
                 data = self.df
                 if dlg.isSortDate.GetValue():
                     data = data.sort_values(config.Read('DateCol'), ascending=True)
-                    print('sorted done.')
-                data = data.drop_duplicates(subset=[self.colnames[k] for k in dlg.keys], keep='first')
+                if dlg.keys:
+                    data = data.drop_duplicates(subset=[self.colnames[k] for k in dlg.keys],
+                                                keep='first')
                 if num_rows == len(data):
                     message = 'No duplicates found.'
                 else:
