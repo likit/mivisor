@@ -11,11 +11,17 @@ from pubsub import pub
 from components.drug_dialog import DrugRegFormDialog
 
 
+CLOSE_PROGRESS_BAR_SIGNAL = 'close-progressbar'
+WRITE_TO_EXCEL_FILE_SIGNAL = 'write-to-excel-file'
+ENABLE_BUTTONS = 'enable-buttons'
+DISABLE_BUTTONS = 'disable-buttons'
+
+
 class PulseProgressBarDialog(wx.ProgressDialog):
     def __init__(self, *args, abort_message='abort'):
         super(PulseProgressBarDialog, self)\
             .__init__(*args, style=wx.PD_AUTO_HIDE | wx.PD_APP_MODAL)
-        pub.subscribe(self.close, 'close_progressbar')
+        pub.subscribe(self.close, CLOSE_PROGRESS_BAR_SIGNAL)
         while self.GetValue() != self.GetRange():
             self.Pulse()
 
@@ -34,6 +40,55 @@ class ReadExcelThread(Thread):
         df = pd.read_excel(self._filepath)
         df = df.dropna(how='all').fillna('')
         wx.CallAfter(pub.sendMessage, self._message, df=df)
+
+
+class BiogramGeneratorThread(Thread):
+    def __init__(self, data, date_col, identifier_col, organism_col, indexes, keys,
+                 include_count, include_percent, include_narst, columns, drug_data):
+        super(BiogramGeneratorThread, self).__init__()
+        self.drug_data = drug_data
+        self.data = data
+        self.date_col = date_col
+        self.identifier_col = identifier_col
+        self.organism_col = organism_col
+        self.columns = columns
+        self.indexes = indexes
+        self.keys = keys
+        self.include_count = include_count
+        self.include_percent = include_percent
+        self.include_narst = include_narst
+        self.start()
+
+    def run(self):
+        # TODO: remove hard-coded organism file
+        organism_df = pd.read_excel('organisms2020.xlsx')
+
+        melted_df = self.data.melt(id_vars=self.keys)
+        _melted_df = pd.merge(melted_df, organism_df, how='inner')
+        _melted_df = pd.merge(_melted_df, self.drug_data,
+                              right_on='abbr', left_on='variable', how='outer')
+        indexes = [self.columns[idx] for idx in self.indexes]
+        total = _melted_df.pivot_table(index=indexes,
+                                       columns=['group', 'variable'], aggfunc='count')
+        sens = _melted_df[_melted_df['value'] == 'S'].pivot_table(index=indexes,
+                                                                  columns=['group', 'variable'],
+                                                                  aggfunc='count')
+        resists = _melted_df[(_melted_df['value'] == 'I') | (_melted_df['value'] == 'R')] \
+            .pivot_table(index=indexes, columns=['group', 'variable'], aggfunc='count')
+        biogram_resists = (resists / total * 100).applymap(lambda x: round(x, 2))
+        biogram_sens = (sens / total * 100).applymap(lambda x: round(x, 2))
+        formatted_total = total.applymap(lambda x: '' if pd.isna(x) else '{:.0f}'.format(x))
+        biogram_narst_s = biogram_sens.fillna('-').applymap(str) + " (" + formatted_total + ")"
+        biogram_narst_s = biogram_narst_s.applymap(lambda x: '' if x.startswith('-') else x)
+        wx.CallAfter(pub.sendMessage, CLOSE_PROGRESS_BAR_SIGNAL)
+        wx.CallAfter(pub.sendMessage,
+                     WRITE_TO_EXCEL_FILE_SIGNAL,
+                     sens=sens if self.include_count else None,
+                     resists=resists if self.include_count else None,
+                     biogram_sens=biogram_sens if self.include_percent else None,
+                     biogram_resists=biogram_resists if self.include_percent else None,
+                     biogram_narst_s=biogram_narst_s if self.include_narst else None,
+                     identifier_col=self.identifier_col)
 
 
 class DataRow(object):
@@ -309,8 +364,9 @@ class MainFrame(wx.Frame):
 
         self.disable_buttons()
 
-        pub.subscribe(self.disable_buttons, 'disable_buttons')
-        pub.subscribe(self.enable_buttons, 'enable_buttons')
+        pub.subscribe(self.disable_buttons, DISABLE_BUTTONS)
+        pub.subscribe(self.enable_buttons, ENABLE_BUTTONS)
+        pub.subscribe(self.write_output, WRITE_TO_EXCEL_FILE_SIGNAL)
 
     def OnClose(self, event):
         if event.CanVeto():
@@ -354,8 +410,8 @@ class MainFrame(wx.Frame):
         self.setColumns()
         self.data = [DataRow(idx, row) for idx, row in self.df.iterrows()]
         self.dataOlv.SetObjects(self.data)
-        pub.sendMessage('close_progressbar')
-        pub.sendMessage('enable_buttons')
+        pub.sendMessage(CLOSE_PROGRESS_BAR_SIGNAL)
+        pub.sendMessage(ENABLE_BUTTONS)
 
     def read_data_from_file(self):
         with wx.FileDialog(self, "Load data from file",
@@ -366,10 +422,10 @@ class MainFrame(wx.Frame):
             filepath = file_dialog.GetPath()
             pub.subscribe(self.set_data_olv, 'load_excel_data_finished')
             ReadExcelThread(filepath, 'load_excel_data_finished')
-            progress_bar = PulseProgressBarDialog('Progress Bar', 'Reading data from {}'.format(filepath))
+            progress_bar = PulseProgressBarDialog('Loading Data', 'Reading data from {}'.format(filepath))
 
     def open_load_data_dialog(self, event):
-        pub.sendMessage('disable_buttons')
+        pub.sendMessage(DISABLE_BUTTONS)
         if not self.df.empty:
             with wx.MessageDialog(self, "Load new dataset?", "Load data", style=wx.YES_NO) as msg_dialog:
                 if msg_dialog.ShowModal() == wx.ID_YES:
@@ -491,58 +547,49 @@ class MainFrame(wx.Frame):
                                 start=data[self.date_col].min(),
                                 end=data[self.date_col].max()) as dlg:
             if dlg.ShowModal() == wx.ID_OK and dlg.indexes:
-                include_narst = dlg.includeNarstStyle.GetValue()
-                include_count = dlg.includeCount.GetValue()
-                include_percent = dlg.includePercent.GetValue()
-                print(include_percent, include_count, include_narst)
-                # TODO: remove hard-coded organism file
-                organism_df = pd.read_excel('organisms2020.xlsx')
-
                 # filter data within the date range
                 data = data[(data[self.date_col].dt.date >= dlg.startDate.GetValue())
-                             & (data[self.date_col].dt.date <= dlg.endDate.GetValue())]
+                            & (data[self.date_col].dt.date <= dlg.endDate.GetValue())]
+                BiogramGeneratorThread(data,
+                                       self.date_col,
+                                       self.identifier_col,
+                                       self.organism_col,
+                                       dlg.indexes,
+                                       keys,
+                                       dlg.includeCount.GetValue(),
+                                       dlg.includePercent.GetValue(),
+                                       dlg.includeNarstStyle.GetValue(),
+                                       columns,
+                                       self.drug_data)
+            progress_bar = PulseProgressBarDialog('Generating Antibiogram', 'Calculating...')
 
-                melted_df = data.melt(id_vars=keys)
-                _melted_df = pd.merge(melted_df, organism_df, how='inner')
-                _melted_df = pd.merge(_melted_df, self.drug_data,
-                                      right_on='abbr', left_on='variable', how='outer')
-                indexes = [columns[idx] for idx in dlg.indexes]
-                total = _melted_df.pivot_table(index=indexes,
-                                               columns=['group', 'variable'], aggfunc='count')
-                sens = _melted_df[_melted_df['value'] == 'S'].pivot_table(index=indexes,
-                                                                          columns=['group', 'variable'],
-                                                                          aggfunc='count')
-                resists = _melted_df[(_melted_df['value'] == 'I') | (_melted_df['value'] == 'R')]\
-                    .pivot_table(index=indexes, columns=['group', 'variable'], aggfunc='count')
-                biogram_resists = (resists / total * 100).applymap(lambda x: round(x, 2))
-                biogram_sens = (sens / total * 100).applymap(lambda x: round(x, 2))
-                formatted_total = total.applymap(lambda x: '' if pd.isna(x) else '{:.0f}'.format(x))
-                biogram_narst_s = biogram_sens.fillna('-').applymap(str) + " (" + formatted_total + ")"
-                biogram_narst_s = biogram_narst_s.applymap(lambda x: '' if x.startswith('-') else x)
-                with wx.FileDialog(self, "Please select the output file for your antibiogram",
-                                   wildcard="Excel file (*xlsx)|*xlsx",
-                                   style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as file_dialog:
-                    if file_dialog.ShowModal() == wx.ID_CANCEL:
-                        return
-                    file_path = file_dialog.GetPath()
-                    try:
-                        with pd.ExcelWriter(file_path, engine='xlsxwriter') as writer:
-                            if include_count:
-                                sens[self.identifier_col].to_excel(writer, sheet_name='count_S')
-                                resists[self.identifier_col].to_excel(writer, sheet_name='count_R')
-                            if include_percent:
-                                biogram_sens[self.identifier_col].to_excel(writer, sheet_name='percent_S')
-                                biogram_resists[self.identifier_col].to_excel(writer, sheet_name='percent_R')
-                            if include_narst:
-                                biogram_narst_s[self.identifier_col].to_excel(writer, sheet_name='narst_s')
-                    except:
-                        with wx.MessageDialog(self, 'Failed', 'Antibiogram Generator', style=wx.OK) as dlg:
-                            if dlg.ShowModal() == wx.ID_OK:
-                                return
-                    else:
-                        with wx.MessageDialog(self, 'Output Saved.', 'Antibiogram Generator', style=wx.OK) as dlg:
-                            if dlg.ShowModal() == wx.ID_OK:
-                                return
+    def write_output(self, sens, resists, biogram_sens, biogram_resists, biogram_narst_s,
+                     identifier_col):
+        with wx.FileDialog(self, "Please select the output file for your antibiogram",
+                           wildcard="Excel file (*xlsx)|*xlsx",
+                           style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as file_dialog:
+            if file_dialog.ShowModal() == wx.ID_CANCEL:
+                return
+            file_path = file_dialog.GetPath()
+        try:
+            with pd.ExcelWriter(file_path, engine='xlsxwriter') as writer:
+                if sens is not None:
+                    sens[identifier_col].to_excel(writer, sheet_name='count_S')
+                if resists is not None:
+                    resists[identifier_col].to_excel(writer, sheet_name='count_R')
+                if biogram_sens is not None:
+                    biogram_sens[identifier_col].to_excel(writer, sheet_name='percent_S')
+                if biogram_resists is not None:
+                    biogram_resists[identifier_col].to_excel(writer, sheet_name='percent_R')
+                if biogram_narst_s is not None:
+                    biogram_narst_s[identifier_col].to_excel(writer, sheet_name='narst_s')
+        except:
+            with wx.MessageDialog(self, 'Failed', 'Antibiogram Generator', style=wx.OK) as dlg:
+                dlg.ShowModal()
+        else:
+            with wx.MessageDialog(self, 'Output Saved.', 'Antibiogram Generator', style=wx.OK) as dlg:
+                dlg.ShowModal()
+
 
 
 class GenApp(wx.App):
