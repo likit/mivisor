@@ -73,11 +73,10 @@ class DrugRegFormDialog(wx.Dialog):
             self.grid.set_table(self.drug_df)
             self.grid.AutoSize()
         except:
-            return pd.DataFrame(columns=['drug', 'abbreviation', 'group'])
-        else:
-            if self.drug_df.empty:
-                self.drug_df = pd.DataFrame(columns=['drug', 'abbreviation', 'group'])
-            self.update_drug_list()
+            pass
+        if self.drug_df.empty:
+            self.drug_df = pd.DataFrame(columns=['drug', 'abbreviation', 'group'])
+        self.update_drug_list()
 
     def update_drug_list(self):
         drug_list = []
