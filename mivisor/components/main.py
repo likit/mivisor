@@ -208,14 +208,12 @@ class MainPanel(wx.Panel):
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         load_button = wx.Button(self, label="Load")
-        add_button = wx.Button(self, label="Add Column")
         copy_button = wx.Button(self, label="Copy Column")
         config_btn = wx.Button(self, label='Config')
         melt_btn = wx.Button(self, label='Melt')
         drug_btn = wx.Button(self, label='Drugs')
         generate_btn = wx.Button(self, label='Generate')
         load_button.Bind(wx.EVT_BUTTON, self.open_load_data_dialog)
-        add_button.Bind(wx.EVT_BUTTON, self.add_column)
         copy_button.Bind(wx.EVT_BUTTON, self.copy_column)
         config_btn.Bind(wx.EVT_BUTTON, self.configure)
         melt_btn.Bind(wx.EVT_BUTTON, self.onMelt)
@@ -228,7 +226,6 @@ class MainPanel(wx.Panel):
         self.dataOlv.cellEditMode = ObjectListView.CELLEDIT_DOUBLECLICK
         main_sizer.Add(self.dataOlv, 1, wx.ALL | wx.EXPAND, 10)
         btn_sizer.Add(load_button, 0, wx.ALL, 5)
-        btn_sizer.Add(add_button, 0, wx.ALL, 5)
         btn_sizer.Add(copy_button, 0, wx.ALL, 5)
         btn_sizer.Add(config_btn, 0, wx.ALL, 5)
         btn_sizer.Add(melt_btn, 0, wx.ALL, 5)
@@ -282,17 +279,6 @@ class MainPanel(wx.Panel):
             columns.append(
                 ColumnDefn(title=c.title(), align='left', stringConverter=formatter, valueGetter=c, minimumWidth=50))
         self.dataOlv.SetColumns(columns)
-
-    def add_column(self, event):
-        self.dataOlv.AddColumnDefn(ColumnDefn(
-            title='strain',
-            align='left',
-            valueGetter='strain',
-            minimumWidth=50,
-        ))
-        for row in self.data:
-            row.strain = 'alpha'
-        self.dataOlv.RepopulateList()
 
     def copy_column(self, event):
         with wx.SingleChoiceDialog(self, 'Select Source Column', 'Source Column', choices=self.colnames) as dlg:
