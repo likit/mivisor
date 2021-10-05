@@ -1,6 +1,7 @@
 import os
 
 import wx
+import wx.adv
 import pandas as pd
 from ObjectListView import ObjectListView, ColumnDefn, FastObjectListView
 from threading import Thread
@@ -45,7 +46,7 @@ class DataRow(object):
 
 
 class BiogramIndexDialog(wx.Dialog):
-    def __init__(self, parent, columns, title='Biogram Indexes'):
+    def __init__(self, parent, columns, title='Biogram Indexes', start=None, end=None):
         super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
         self.indexes = []
         self.choices = columns
@@ -56,9 +57,19 @@ class BiogramIndexDialog(wx.Dialog):
         self.index_items_list = wx.ListCtrl(self, wx.ID_ANY, style=wx.LC_REPORT, size=(300, 200))
         self.index_items_list.AppendColumn('Level')
         self.index_items_list.AppendColumn('Attribute')
+        dateBoxSizer = wx.StaticBoxSizer(wx.HORIZONTAL, self, label='Date Range')
+        self.startDate = wx.adv.DatePickerCtrl(self, dt=start)
+        startDateLabel = wx.StaticText(self, label='Start')
+        self.endDate = wx.adv.DatePickerCtrl(self, dt=end)
+        endDateLabel = wx.StaticText(self, label='End')
+        dateBoxSizer.Add(startDateLabel, 0, wx.ALL, 5)
+        dateBoxSizer.Add(self.startDate, 0, wx.ALL, 5)
+        dateBoxSizer.Add(endDateLabel, 0, wx.ALL, 5)
+        dateBoxSizer.Add(self.endDate, 0, wx.ALL, 5)
         main_sizer.Add(instruction, 0, wx.ALL, 5)
         main_sizer.Add(self.chlbox, 1, wx.ALL | wx.EXPAND, 10)
         main_sizer.Add(self.index_items_list, 1, wx.ALL | wx.EXPAND, 10)
+        main_sizer.Add(dateBoxSizer, 0, wx.ALL, 5)
         btn_sizer = wx.StdDialogButtonSizer()
         ok_btn = wx.Button(self, id=wx.ID_OK, label='Generate')
         ok_btn.SetDefault()
@@ -429,6 +440,8 @@ class MainFrame(wx.Frame):
         return df.melt(id_vars=keys)
 
     def generate(self, event):
+        if not all([self.date_col, self.identifier_col, self.organism_col]):
+            self.configure()
         if self.df.empty:
             with wx.MessageDialog(self, 'No data provided. Please load data from an Excel file',
                                   'Error', style=wx.OK) as dlg:
@@ -456,21 +469,30 @@ class MainFrame(wx.Frame):
         for c in self.colnames:
             if c not in self.drugs_col:
                 keys.append(c)
-        melted_df = data.melt(id_vars=keys)
         columns = [c for c in self.colnames if c not in self.drugs_col] + ['GENUS', 'SPECIES', 'GRAM']
         if self.identifier_col in columns:
             columns.remove(self.identifier_col)
         if self.date_col in columns:
             columns.remove(self.date_col)
 
-        with BiogramIndexDialog(self, columns) as dlg:
+        with BiogramIndexDialog(self, columns,
+                                start=data[self.date_col].min(),
+                                end=data[self.date_col].max()) as dlg:
             if dlg.ShowModal() == wx.ID_OK and dlg.indexes:
                 # TODO: remove hard-coded organism file
                 organism_df = pd.read_excel('organisms2020.xlsx')
+
+                # filter data within the date range
+                data = data[(data[self.date_col].dt.date >= dlg.startDate.GetValue())
+                             & (data[self.date_col].dt.date <= dlg.endDate.GetValue())]
+
+                melted_df = data.melt(id_vars=keys)
                 _melted_df = pd.merge(melted_df, organism_df, how='inner')
-                _melted_df = pd.merge(_melted_df, self.drug_data, right_on='abbr', left_on='variable', how='outer')
+                _melted_df = pd.merge(_melted_df, self.drug_data,
+                                      right_on='abbr', left_on='variable', how='outer')
                 indexes = [columns[idx] for idx in dlg.indexes]
-                total = _melted_df.pivot_table(index=indexes, columns=['group', 'variable'], aggfunc='count')
+                total = _melted_df.pivot_table(index=indexes,
+                                               columns=['group', 'variable'], aggfunc='count')
                 sens = _melted_df[_melted_df['value'] == 'S'].pivot_table(index=indexes,
                                                                           columns=['group', 'variable'],
                                                                           aggfunc='count')
