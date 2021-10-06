@@ -106,6 +106,9 @@ class DataRow(object):
     def to_list(self, columns):
         return [getattr(self, c) for c in columns]
 
+    def to_dict(self, columns):
+        return {c: getattr(self, c) for c in columns}
+
 
 class BiogramIndexDialog(wx.Dialog):
     def __init__(self, parent, columns, title='Biogram Indexes', start=None, end=None):
@@ -325,10 +328,12 @@ class MainFrame(wx.Frame):
         menuBar.Append(fileMenu, '&File')
         menuBar.Append(registryMenu, 'Re&gistry')
         fileItem = fileMenu.Append(wx.ID_EXIT, 'Quit', 'Quit Application')
+        exportItem = fileMenu.Append(wx.ID_EXIT, 'Export Data', 'Export Data')
         drugItem = registryMenu.Append(wx.ID_ANY, 'Drugs', 'Drug Registry')
         self.SetMenuBar(menuBar)
         self.Bind(wx.EVT_MENU, lambda x: self.Close(), fileItem)
         self.Bind(wx.EVT_MENU, self.open_drug_dialog, drugItem)
+        self.Bind(wx.EVT_MENU, self.export_data, exportItem)
 
         self.Bind(wx.EVT_CLOSE, self.OnClose)
         self.SetIcon(wx.Icon(resource_path(os.path.join('icons', 'appicon.ico'))))
@@ -394,6 +399,25 @@ class MainFrame(wx.Frame):
         self.generate_btn.Enable()
         self.copy_button.Enable()
         self.config_btn.Enable()
+
+    def export_data(self, event):
+        df = pd.DataFrame([d.to_dict(self.colnames) for d in self.data])
+        with wx.FileDialog(self, "Please select the output file for data",
+                           wildcard="Excel file (*xlsx)|*xlsx",
+                           style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as file_dialog:
+            if file_dialog.ShowModal() == wx.ID_CANCEL:
+                return
+            file_path = file_dialog.GetPath()
+            if os.path.splitext(file_path)[1] != '.xlsx':
+                file_path = file_path + '.xlsx'
+            try:
+                df.to_excel(file_path, index=False)
+            except:
+                with wx.MessageDialog(self, 'Export failed.', 'Export Data', style=wx.OK) as dlg:
+                    dlg.ShowModal()
+            else:
+                with wx.MessageDialog(self, 'Export completed.', 'Export Data', style=wx.OK) as dlg:
+                    dlg.ShowModal()
 
     def load_drug_data(self):
         try:
@@ -520,16 +544,17 @@ class MainFrame(wx.Frame):
     def generate(self, event):
         if not all([self.date_col, self.identifier_col, self.organism_col]):
             self.configure()
-        if self.df.empty:
+        df = pd.DataFrame([d.to_dict(self.colnames) for d in self.data])
+        if df.empty:
             with wx.MessageDialog(self, 'No data provided. Please load data from an Excel file',
                                   'Error', style=wx.OK) as dlg:
                 if dlg.ShowModal() == wx.ID_OK:
                     return
-        num_rows = len(self.df)
+        num_rows = len(df)
         with DeduplicateIndexDialog(self, [c for c in self.colnames
                                            if c not in self.drugs_col]) as dlg:
             if dlg.ShowModal() == wx.ID_OK:
-                data = self.df
+                data = df
                 if dlg.isSortDate.GetValue():
                     data = data.sort_values(config.Read('DateCol'), ascending=True)
                 if dlg.keys:
