@@ -17,11 +17,6 @@ WRITE_TO_EXCEL_FILE_SIGNAL = 'write-to-excel-file'
 ENABLE_BUTTONS = 'enable-buttons'
 DISABLE_BUTTONS = 'disable-buttons'
 
-def resource_path(relative_path):
-    """ Get absolute path to resource, works for dev and for PyInstaller """
-    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
-    return os.path.join(base_path, relative_path)
-
 
 class PulseProgressBarDialog(wx.ProgressDialog):
     def __init__(self, *args, abort_message='abort'):
@@ -315,8 +310,7 @@ class DeduplicateIndexDialog(wx.Dialog):
 
 class MainFrame(wx.Frame):
     def __init__(self):
-        wx.Frame.__init__(self, parent=None, id=wx.ID_ANY,
-                          title="Mivisor Version 2021.1", size=(800, 600))
+        wx.Frame.__init__(self, parent=None, id=wx.ID_ANY, title="Mivisor Version 2021.1", size=(800, 600))
         panel = wx.Panel(self)
         # TODO: figure out how to update the statusbar's text from the frame's children
         self.statusbar = self.CreateStatusBar(2)
@@ -336,7 +330,6 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.export_data, exportItem)
 
         self.Bind(wx.EVT_CLOSE, self.OnClose)
-        self.SetIcon(wx.Icon(resource_path(os.path.join('icons', 'appicon.ico'))))
         self.Center()
         self.Maximize(True)
 

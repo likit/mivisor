@@ -1,3 +1,6 @@
+import os
+import sys
+
 import wx
 import ctypes
 
@@ -7,6 +10,7 @@ except:
     pass
 
 from components.main import GenApp
+
 
 def main():
     app = GenApp()
