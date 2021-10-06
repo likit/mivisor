@@ -321,13 +321,16 @@ class MainFrame(wx.Frame):
         registryMenu = wx.Menu()
         menuBar.Append(fileMenu, '&File')
         menuBar.Append(registryMenu, 'Re&gistry')
-        fileItem = fileMenu.Append(wx.ID_EXIT, 'Quit', 'Quit Application')
-        exportItem = fileMenu.Append(wx.ID_EXIT, 'Export Data', 'Export Data')
+        loadItem = fileMenu.Append(wx.ID_ANY, 'Load Data', 'Load Data')
+        exportItem = fileMenu.Append(wx.ID_ANY, 'Export Data', 'Export Data')
+        fileMenu.AppendSeparator()
+        fileItem = fileMenu.Append(wx.ID_EXIT, '&Quit', 'Quit Application')
         drugItem = registryMenu.Append(wx.ID_ANY, 'Drugs', 'Drug Registry')
         self.SetMenuBar(menuBar)
         self.Bind(wx.EVT_MENU, lambda x: self.Close(), fileItem)
         self.Bind(wx.EVT_MENU, self.open_drug_dialog, drugItem)
         self.Bind(wx.EVT_MENU, self.export_data, exportItem)
+        self.Bind(wx.EVT_MENU, self.open_load_data_dialog, loadItem)
 
         self.Bind(wx.EVT_CLOSE, self.OnClose)
         self.Center()
@@ -395,6 +398,11 @@ class MainFrame(wx.Frame):
 
     def export_data(self, event):
         df = pd.DataFrame([d.to_dict(self.colnames) for d in self.data])
+        if df.empty:
+            with wx.MessageDialog(self, 'No data to export. Please load data first.',
+                                  'Export Data', style=wx.OK) as dlg:
+                dlg.ShowModal()
+                return
         with wx.FileDialog(self, "Please select the output file for data",
                            wildcard="Excel file (*xlsx)|*xlsx",
                            style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as file_dialog:
