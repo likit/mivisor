@@ -199,7 +199,7 @@ class NewColumnDialog(wx.Dialog):
 
 class DrugListCtrl(wx.ListCtrl):
     def __init__(self, parent, cols):
-        super(DrugListCtrl, self).__init__(parent, style=wx.LC_REPORT)
+        super(DrugListCtrl, self).__init__(parent, style=wx.LC_REPORT, size=(300, 200))
         self.EnableCheckBoxes(True)
         self.Bind(wx.EVT_LIST_ITEM_CHECKED, self.on_check)
         self.Bind(wx.EVT_LIST_ITEM_UNCHECKED, self.on_uncheck)
@@ -326,6 +326,7 @@ class MainFrame(wx.Frame):
 
         self.Bind(wx.EVT_CLOSE, self.OnClose)
         self.Center()
+        self.Maximize(True)
 
         self.load_drug_data()
 
@@ -353,6 +354,8 @@ class MainFrame(wx.Frame):
         self.dataOlv.oddRowsBackColor = wx.Colour(230, 230, 230, 100)
         self.dataOlv.evenRowsBackColor = wx.WHITE
         self.dataOlv.cellEditMode = ObjectListView.CELLEDIT_DOUBLECLICK
+        self.dataOlv.SetEmptyListMsg('Welcome to Mivisor Version 2021.1')
+        self.dataOlv.SetObjects([])
         main_sizer.Add(self.dataOlv, 1, wx.ALL | wx.EXPAND, 10)
         btn_sizer.Add(load_button, 0, wx.ALL, 5)
         btn_sizer.Add(self.copy_button, 0, wx.ALL, 5)
@@ -573,6 +576,8 @@ class MainFrame(wx.Frame):
             if file_dialog.ShowModal() == wx.ID_CANCEL:
                 return
             file_path = file_dialog.GetPath()
+            if os.path.splitext(file_path)[1] != '.xlsx':
+                file_path = file_path + '.xlsx'
         try:
             with pd.ExcelWriter(file_path, engine='xlsxwriter') as writer:
                 if sens is not None:
