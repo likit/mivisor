@@ -1,4 +1,5 @@
 import os
+import sys
 
 import wx
 import wx.adv
@@ -15,6 +16,11 @@ CLOSE_PROGRESS_BAR_SIGNAL = 'close-progressbar'
 WRITE_TO_EXCEL_FILE_SIGNAL = 'write-to-excel-file'
 ENABLE_BUTTONS = 'enable-buttons'
 DISABLE_BUTTONS = 'disable-buttons'
+
+def resource_path(relative_path):
+    """ Get absolute path to resource, works for dev and for PyInstaller """
+    base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(base_path, relative_path)
 
 
 class PulseProgressBarDialog(wx.ProgressDialog):
@@ -325,6 +331,7 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.open_drug_dialog, drugItem)
 
         self.Bind(wx.EVT_CLOSE, self.OnClose)
+        self.SetIcon(wx.Icon(resource_path(os.path.join('icons', 'appicon.ico'))))
         self.Center()
         self.Maximize(True)
 
