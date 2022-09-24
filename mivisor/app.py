@@ -9,7 +9,7 @@ import PySimpleGUI as sg
 import ctypes
 
 from mivisor.utils import load_excel_data
-from mivisor.windows import create_data_table
+from mivisor.windows import create_data_table, create_annotate_column_window
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(True)
@@ -25,6 +25,11 @@ def load_excel_data_thread(filepath, window, queue):
 def main():
     sg.theme('BlueMono')
     sg.set_options(font=('Helvetica', 12))
+
+    # Initialize important values for downstream analyses
+    data_frame = None
+    annotation = None
+
     menu_def = [
         ['Registry', ['Drugs']],
         ['Tools', ['Scan data']],
@@ -37,7 +42,8 @@ def main():
         [sg.Text('Analytical Tools for Microbiology', font=('Helvetica', 20))],
         [sg.Frame(title='Quick Fix', expand_y=True, expand_x=True,
                   element_justification='center',
-                  layout=[[sg.Button('Load data', key='-LOAD-', visible=True)],
+                  layout=[[sg.Button('Load data', key='-LOAD-')],
+                          [sg.Button('Annotate columns', key='-ANNOTATE-')],
                           [sg.Button('Generate antibiogram', key='-GENERATE-')],
                           [sg.Exit(button_color='white on red')]]
                   )
@@ -67,8 +73,17 @@ def main():
                     thread_id.start()
                 except:
                     sg.popup_error('Failed to open the file.', title='File Error')
+        elif event == '-ANNOTATE-':
+            if data_frame is not None:
+                annotation = create_annotate_column_window(data_frame)
+            else:
+                sg.popup_quick_message('Load data first.', background_color='red')
+        elif event == '-GENERATE-':
+            if not annotation or data_frame is None:
+                sg.popup_quick_message('Not enough data to generate an antibiogram.', background_color='red')
         elif event == '-THREAD-DONE-':
             df, data, headers = queue.get()
+            data_frame = df
             if data and headers:
                 create_data_table(data[:100], headers)
             else:
