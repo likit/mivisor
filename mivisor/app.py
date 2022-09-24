@@ -35,11 +35,13 @@ def main():
         [sg.Menu(menu_def)],
         [sg.Text('Mivisor 2022.1', font=('Helvetica', 28))],
         [sg.Text('Analytical Tools for Microbiology', font=('Helvetica', 20))],
-        [sg.Frame(title='Quick Fix', expand_x=True, expand_y=True, element_justification='center', layout=[
-            [sg.Button('Load data', key='-LOAD-', visible=True)],
-             [sg.Button('Generate antibiogram', key='-GENERATE-')],
-             [sg.Exit(button_color='white on red')]
-        ])]
+        [sg.Frame(title='Quick Fix', expand_y=True, expand_x=True,
+                  element_justification='center',
+                  layout=[[sg.Button('Load data', key='-LOAD-', visible=True)],
+                          [sg.Button('Generate antibiogram', key='-GENERATE-')],
+                          [sg.Exit(button_color='white on red')]]
+                  )
+         ]
     ]
 
     window = sg.Window('Mivisor v.2022.1',
