@@ -29,7 +29,7 @@ def main():
 
     # Initialize important values for downstream analyses
     data_frame = None
-    annotation = None
+    annotation = {}
 
     menu_def = [
         ['Registry', ['Drugs']],
