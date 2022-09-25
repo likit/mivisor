@@ -1,5 +1,6 @@
 import os
 import sys
+from tomlkit import parse, dump
 import threading
 from queue import Queue
 
@@ -75,7 +76,12 @@ def main():
                     sg.popup_error('Failed to open the file.', title='File Error')
         elif event == '-ANNOTATE-':
             if data_frame is not None:
-                annotation = create_annotate_column_window(data_frame)
+                if os.path.exists('annotation.toml'):
+                    annotation = parse(open('annotation.toml').read())
+                annotation = create_annotate_column_window(data_frame, annotation)
+                if annotation:
+                    dump(annotation, open('annotation.toml', 'w'))
+                    sg.popup_quick_message('Saved annotation successfully', background_color='green')
             else:
                 sg.popup_quick_message('Load data first.', background_color='red')
         elif event == '-GENERATE-':

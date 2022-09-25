@@ -35,12 +35,16 @@ def create_data_table(data, headers):
     window.close()
 
 
-def create_annotate_column_window(df):
+def create_annotate_column_window(df, annot):
     headers = list(df)
+    id_ = annot.get('-ID-')
+    date_ = annot.get('-DATE-')
+    drugs_ = annot.get('-DRUGS-')
     layout = [
-        [sg.Text('Identifier:', size=(10, 1)), sg.Combo(values=headers, key='-ID-', expand_x=True)],
-        [sg.Text('Date:', size=(10, 1)), sg.Combo(values=headers, key='-DATE-', expand_x=True)],
+        [sg.Text('Identifier:', size=(10, 1)), sg.Combo(values=headers, key='-ID-', expand_x=True, default_value=id_)],
+        [sg.Text('Date:', size=(10, 1)), sg.Combo(values=headers, key='-DATE-', expand_x=True, default_value=date_)],
         [sg.Text('Drugs:', size=(10, 1)), sg.Listbox(values=headers,
+                                                     default_values=drugs_,
                                                      highlight_background_color='blue',
                                                      key='-DRUGS-',
                                                      select_mode=sg.LISTBOX_SELECT_MODE_EXTENDED,
