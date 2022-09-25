@@ -41,19 +41,22 @@ def main():
         [sg.Menu(menu_def)],
         [sg.Text('Mivisor 2022.1', font=('Helvetica', 28))],
         [sg.Text('Analytical Tools for Microbiology', font=('Helvetica', 20))],
-        [sg.Frame(title='Quick Fix', expand_y=True, expand_x=True,
+        [sg.Text('โดยคณะเทคนิคการแพทย์ มหาวิทยาลัยมหิดล', font=('Helvetica', 14))],
+        [sg.Frame(title='Steps', expand_y=True, expand_x=True,
                   element_justification='center',
-                  layout=[[sg.Button('Load data', key='-LOAD-')],
-                          [sg.Button('Annotate columns', key='-ANNOTATE-')],
-                          [sg.Button('Generate antibiogram', key='-GENERATE-')],
-                          [sg.Exit(button_color='white on red')]]
+                  layout=[[sg.Button('Load data', key='-LOAD-', size=(20, 1))],
+                          [sg.Button('Preview data', disabled=True, key='-PREVIEW-', size=(20, 1))],
+                          [sg.Button('Annotate columns', key='-ANNOTATE-', size=(20, 1))],
+                          [sg.Button('Generate antibiogram', key='-GENERATE-', size=(20, 1))],
+                  ]
                   )
-         ]
+         ],
+         [sg.Exit(button_color='white on red', size=(20, 1))],
     ]
 
     window = sg.Window('Mivisor v.2022.1',
                        layout=layout,
-                       size=(800, 300),
+                       size=(800, 350),
                        element_justification='center',
                        resizable=True).finalize()
 
@@ -91,9 +94,15 @@ def main():
             df, data, headers = queue.get()
             data_frame = df
             if data and headers:
-                create_data_table(data[:100], headers)
+                window.find_element('-PREVIEW-').update(disabled=False)
+                create_data_table(data[:100], len(df), headers)
             else:
                 sg.popup_error('Failed to open the file.', title='File Error')
+        elif event == '-PREVIEW-':
+            if data and headers:
+                create_data_table(data[:100], len(df), headers)
+            else:
+                sg.popup_error('ไม่สามารถเปิดข้อมูลได้ กรุณาลองเปิดไฟล์ข้อมูลอีกครั้ง', title='Error')
     window.close()
 
 

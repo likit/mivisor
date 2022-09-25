@@ -1,7 +1,7 @@
 import PySimpleGUI as sg
 
 
-def create_data_table(data, headers):
+def create_data_table(data, num_rows, headers):
     layout = [
         [sg.Text('Data Preview', font=('Helvetica', 18))],
         [sg.Table(values=data,
@@ -19,7 +19,7 @@ def create_data_table(data, headers):
         [sg.Frame(title='Summary',
                   expand_x=True,
                   layout=[
-                      [sg.Text('Total rows:'), sg.Text(len(data))],
+                      [sg.Text('Total rows:'), sg.Text(num_rows)],
                       [sg.Text('Total columns:'), sg.Text(len(headers))],
                   ]
                   )],
@@ -40,9 +40,12 @@ def create_annotate_column_window(df, annot):
     id_ = annot.get('-ID-')
     date_ = annot.get('-DATE-')
     drugs_ = annot.get('-DRUGS-')
+    org_ = annot.get('-ORG-')
     layout = [
         [sg.Text('Identifier:', size=(10, 1)), sg.Combo(values=headers, key='-ID-', expand_x=True, default_value=id_)],
         [sg.Text('Date:', size=(10, 1)), sg.Combo(values=headers, key='-DATE-', expand_x=True, default_value=date_)],
+        [sg.Text('Organism Code:', size=(10, 1)), sg.Combo(values=headers,
+                                                           key='-ORG-', expand_x=True, default_value=org_)],
         [sg.Text('Drugs:', size=(10, 1)), sg.Listbox(values=headers,
                                                      default_values=drugs_,
                                                      highlight_background_color='blue',
@@ -63,11 +66,16 @@ def create_annotate_column_window(df, annot):
             sg.popup_ok('ในการสร้าง antibiogram โปรแกรมต้องทราบคอลัมน์ที่จะเป็นตัวแทนของผู้ป่วย (identifier)',
                         'และต้องทราบวันที่เพื่อใช้ในการ deduplicate และกรองข้อมูล',
                         'นอกจากนั้นโปรแกรมต้องทราบคอลัมน์ที่เป็นชื่อยาเพื่อใช้ในการวิเคราะห์',
+                        'และรหัสของเชื้อหรือชื่อเชื้อที่ใช้ในการเก็บข้อมูลด้วย',
                         background_color='white')
         elif event == 'OK':
             error = False
             if not values['-ID-']:
-                sg.popup_quick_message('Identifier is not speficied.', background_color='red')
+                sg.popup_quick_message('The identifier is not specified.', background_color='red')
+                error = True
+
+            if not values['-ORG-']:
+                sg.popup_quick_message('The organism code is not specified.', background_color='red')
                 error = True
 
             if values['-DATE-']:
