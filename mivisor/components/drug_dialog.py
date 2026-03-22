@@ -82,8 +82,9 @@ class DrugRegFormDialog(wx.Dialog):
         drug_list = []
         self.drug_df = self.drug_df.sort_values(['group'])
         for idx, row in self.drug_df.iterrows():
-            if row['abbreviation']:
-                abbrs = [a.strip().upper() for a in row['abbreviation'].split(',')]
+            abbreviation = row.get('abbreviation', '')
+            if isinstance(abbreviation, str) and abbreviation.strip():
+                abbrs = [a.strip().upper() for a in abbreviation.split(',') if a.strip()]
             else:
                 abbrs = []
             for ab in abbrs:

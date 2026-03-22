@@ -1,10 +1,17 @@
 import os
 import sys
+import json
+import sqlite3
+from datetime import datetime
 
 import wx
 import wx.adv
 import pandas as pd
 import xlsxwriter
+
+if hasattr(wx, 'ItemAttr'):
+    wx.ListItemAttr = wx.ItemAttr
+
 from ObjectListView import ObjectListView, ColumnDefn, FastObjectListView
 from threading import Thread
 from pubsub import pub
@@ -16,6 +23,35 @@ CLOSE_PROGRESS_BAR_SIGNAL = 'close-progressbar'
 WRITE_TO_EXCEL_FILE_SIGNAL = 'write-to-excel-file'
 ENABLE_BUTTONS = 'enable-buttons'
 DISABLE_BUTTONS = 'disable-buttons'
+DATABASE_SCHEMA_VERSION = 1
+
+
+def patch_object_list_view():
+    if getattr(ObjectListView, '_mivisor_size_patch', False):
+        return
+
+    def _handle_size(self, evt):
+        self._PossibleFinishCellEdit()
+        evt.Skip()
+        self._ResizeSpaceFillingColumns()
+        if not hasattr(self, 'stEmptyListMsg') or not self.stEmptyListMsg:
+            return
+
+        sz = self.GetClientSize()
+        x = 0
+        y = int(sz.GetHeight() / 3)
+        width = int(sz.GetWidth())
+        height = int(sz.GetHeight())
+        if 'phoenix' in wx.PlatformInfo:
+            self.stEmptyListMsg.SetSize(x, y, width, height)
+        else:
+            self.stEmptyListMsg.SetDimensions(x, y, width, height)
+
+    ObjectListView._HandleSize = _handle_size
+    ObjectListView._mivisor_size_patch = True
+
+
+patch_object_list_view()
 
 
 class PulseProgressBarDialog(wx.ProgressDialog):
@@ -60,27 +96,123 @@ class BiogramGeneratorThread(Thread):
         self.include_narst = include_narst
         self.start()
 
-    def run(self):
-        # TODO: remove hard-coded organism file
+    @staticmethod
+    def _organism_lookup():
         organism_df = pd.read_excel(os.path.join('appdata', 'organisms2020.xlsx'))
+        return organism_df[['ORGANISM', 'GENUS', 'SPECIES', 'GRAM']]
 
-        melted_df = self.data.melt(id_vars=self.keys)
-        _melted_df = pd.merge(melted_df, organism_df, how='inner')
-        _melted_df = pd.merge(_melted_df, self.drug_data,
-                              right_on='abbr', left_on='variable', how='outer')
+    def _empty_result(self, indexes):
+        empty_index = pd.MultiIndex.from_arrays([[] for _ in indexes], names=indexes)
+        empty_columns = pd.MultiIndex.from_arrays(
+            [[], [], []], names=[None, 'group', 'variable']
+        )
+        return pd.DataFrame(index=empty_index, columns=empty_columns)
+
+    def _wrap_result(self, frame):
+        return pd.concat({self.identifier_col: frame}, axis=1)
+
+    @staticmethod
+    def _coerce_numeric(frame):
+        return frame.apply(pd.to_numeric, errors='coerce')
+
+    @staticmethod
+    def _format_count(value):
+        if pd.isna(value):
+            return ''
+        try:
+            return '{:.0f}'.format(float(value))
+        except (TypeError, ValueError):
+            return ''
+
+    def _build_outputs(self, long_df, indexes):
+        if long_df.empty:
+            total = self._empty_result(indexes)
+            sens = self._empty_result(indexes)
+            resists = self._empty_result(indexes)
+        else:
+            working_df = long_df.copy()
+            working_df['is_s'] = (working_df['value'] == 'S').astype('int64')
+            working_df['is_resist'] = working_df['value'].isin(['I', 'R']).astype('int64')
+
+            grouped = working_df.groupby(indexes + ['group', 'variable'], observed=True)[
+                [self.identifier_col, 'is_s', 'is_resist']
+            ].agg({
+                self.identifier_col: 'count',
+                'is_s': 'sum',
+                'is_resist': 'sum',
+            })
+
+            total = self._wrap_result(grouped[self.identifier_col].unstack(['group', 'variable']))
+            sens = self._wrap_result(grouped['is_s'].unstack(['group', 'variable']))
+            resists = self._wrap_result(grouped['is_resist'].unstack(['group', 'variable']))
+
+        total = self._coerce_numeric(total)
+        sens = self._coerce_numeric(sens)
+        resists = self._coerce_numeric(resists)
+        biogram_resists = (resists / total * 100).round(2)
+        biogram_sens = (sens / total * 100).round(2)
+        formatted_total = total.map(self._format_count)
+        biogram_narst_s = biogram_sens.fillna('-').map(str) + " (" + formatted_total + ")"
+        biogram_narst_s = biogram_narst_s.map(lambda x: '' if x.startswith('-') else x)
+        return sens, resists, biogram_sens, biogram_resists, biogram_narst_s
+
+    def run(self):
         indexes = [self.columns[idx] for idx in self.indexes]
-        total = _melted_df.pivot_table(index=indexes,
-                                       columns=['group', 'variable'], aggfunc='count')
-        sens = _melted_df[_melted_df['value'] == 'S'].pivot_table(index=indexes,
-                                                                  columns=['group', 'variable'],
-                                                                  aggfunc='count')
-        resists = _melted_df[(_melted_df['value'] == 'I') | (_melted_df['value'] == 'R')] \
-            .pivot_table(index=indexes, columns=['group', 'variable'], aggfunc='count')
-        biogram_resists = (resists / total * 100).applymap(lambda x: round(x, 2))
-        biogram_sens = (sens / total * 100).applymap(lambda x: round(x, 2))
-        formatted_total = total.applymap(lambda x: '' if pd.isna(x) else '{:.0f}'.format(x))
-        biogram_narst_s = biogram_sens.fillna('-').applymap(str) + " (" + formatted_total + ")"
-        biogram_narst_s = biogram_narst_s.applymap(lambda x: '' if x.startswith('-') else x)
+        drug_columns = [column for column in self.data.columns if column not in self.keys]
+
+        long_df = pd.DataFrame(columns=indexes + ['group', 'variable', 'value', self.identifier_col])
+        if drug_columns:
+            organism_df = self._organism_lookup().rename(columns={'ORGANISM': self.organism_col})
+            annotated_df = self.data.merge(organism_df, on=self.organism_col, how='inner')
+            melted_df = annotated_df.melt(id_vars=self.keys + ['GENUS', 'SPECIES', 'GRAM'],
+                                          value_vars=drug_columns)
+            drug_lookup = self.drug_data[['abbr', 'group']].drop_duplicates()
+            merged_df = melted_df.merge(drug_lookup, left_on='variable', right_on='abbr', how='inner')
+            long_df = merged_df[[
+                *indexes,
+                self.identifier_col,
+                'group',
+                'variable',
+                'value',
+            ]]
+
+        sens, resists, biogram_sens, biogram_resists, biogram_narst_s = self._build_outputs(long_df, indexes)
+        wx.CallAfter(pub.sendMessage, CLOSE_PROGRESS_BAR_SIGNAL)
+        wx.CallAfter(pub.sendMessage,
+                     WRITE_TO_EXCEL_FILE_SIGNAL,
+                     sens=sens if self.include_count else None,
+                     resists=resists if self.include_count else None,
+                     biogram_sens=biogram_sens if self.include_percent else None,
+                     biogram_resists=biogram_resists if self.include_percent else None,
+                     biogram_narst_s=biogram_narst_s if self.include_narst else None,
+                     identifier_col=self.identifier_col)
+
+
+class DatabaseBiogramGeneratorThread(BiogramGeneratorThread):
+    def __init__(self, facts_df, identifier_col, indexes, include_count, include_percent, include_narst):
+        self.facts_df = facts_df
+        super().__init__(
+            data=pd.DataFrame(),
+            date_col='',
+            identifier_col=identifier_col,
+            organism_col='',
+            indexes=list(range(len(indexes))),
+            keys=[],
+            include_count=include_count,
+            include_percent=include_percent,
+            include_narst=include_narst,
+            columns=indexes,
+            drug_data=pd.DataFrame(),
+        )
+
+    def run(self):
+        indexes = [self.columns[idx] for idx in self.indexes]
+        long_df = self.facts_df.rename(columns={
+            'drug_group': 'group',
+            'drug': 'variable',
+            'sensitivity': 'value',
+        })
+        sens, resists, biogram_sens, biogram_resists, biogram_narst_s = self._build_outputs(long_df, indexes)
         wx.CallAfter(pub.sendMessage, CLOSE_PROGRESS_BAR_SIGNAL)
         wx.CallAfter(pub.sendMessage,
                      WRITE_TO_EXCEL_FILE_SIGNAL,
@@ -103,6 +235,24 @@ class DataRow(object):
 
     def to_dict(self, columns):
         return {c: getattr(self, c) for c in columns}
+
+
+def format_datetime(value):
+    if pd.isna(value):
+        return ''
+    if hasattr(value, 'strftime'):
+        return value.strftime('%Y-%m-%d')
+    return str(value)
+
+
+def to_wx_date(value):
+    if pd.isna(value) or value is None:
+        return wx.DateTime.Now()
+    if hasattr(value, 'to_pydatetime'):
+        value = value.to_pydatetime()
+    if hasattr(value, 'year') and hasattr(value, 'month') and hasattr(value, 'day'):
+        return wx.DateTime.FromDMY(value.day, value.month - 1, value.year)
+    return wx.DateTime.Now()
 
 
 class BiogramIndexDialog(wx.Dialog):
@@ -213,17 +363,39 @@ class DrugListCtrl(wx.ListCtrl):
         for col in cols:
             self.Append([col])
 
-        for d in config.Read('Drugs').split(';'):
-            if d in self.cols:
-                idx = self.cols.index(d)
+        configured_drugs = {drug for drug in config.Read('Drugs').split(';') if drug}
+        detected_drugs = self.detect_drug_columns()
+
+        for idx, col in enumerate(self.cols):
+            if col in configured_drugs or col in detected_drugs:
                 self.CheckItem(idx)
+
+    def detect_drug_columns(self):
+        try:
+            drug_df = pd.read_json(os.path.join('appdata', 'drugs.json'))
+        except:
+            return set()
+
+        abbreviations = set()
+        for abbreviation in drug_df.get('abbreviation', pd.Series(dtype='object')).dropna():
+            if isinstance(abbreviation, str):
+                abbreviations.update(
+                    a.strip().upper() for a in abbreviation.split(',') if a.strip()
+                )
+
+        detected = set()
+        for col in self.cols:
+            if isinstance(col, str) and col.strip().upper() in abbreviations:
+                detected.add(col)
+        return detected
 
     def on_check(self, event):
         item = event.GetItem()
         idx = item.GetId()
         col = self.cols[idx]
         if self.IsItemChecked(idx):
-            self.drugs.append(col)
+            if col not in self.drugs:
+                self.drugs.append(col)
 
     def on_uncheck(self, event):
         item = event.GetItem()
@@ -319,18 +491,24 @@ class MainFrame(wx.Frame):
         menuBar = wx.MenuBar()
         fileMenu = wx.Menu()
         registryMenu = wx.Menu()
+        databaseMenu = wx.Menu()
         menuBar.Append(fileMenu, '&File')
         menuBar.Append(registryMenu, 'Re&gistry')
+        menuBar.Append(databaseMenu, '&Database')
         loadItem = fileMenu.Append(wx.ID_ANY, 'Load Data', 'Load Data')
         exportItem = fileMenu.Append(wx.ID_ANY, 'Export Data', 'Export Data')
         fileMenu.AppendSeparator()
         fileItem = fileMenu.Append(wx.ID_EXIT, '&Quit', 'Quit Application')
         drugItem = registryMenu.Append(wx.ID_ANY, 'Drugs', 'Drug Registry')
+        exportDatabaseItem = databaseMenu.Append(wx.ID_ANY, 'Save Database', 'Save current data to a database')
+        generateDatabaseItem = databaseMenu.Append(wx.ID_ANY, 'Generate Antibiogram', 'Generate antibiogram from a database')
         self.SetMenuBar(menuBar)
         self.Bind(wx.EVT_MENU, lambda x: self.Close(), fileItem)
         self.Bind(wx.EVT_MENU, self.open_drug_dialog, drugItem)
         self.Bind(wx.EVT_MENU, self.export_data, exportItem)
         self.Bind(wx.EVT_MENU, self.open_load_data_dialog, loadItem)
+        self.Bind(wx.EVT_MENU, self.export_database, exportDatabaseItem)
+        self.Bind(wx.EVT_MENU, self.generate_from_database, generateDatabaseItem)
 
         self.Bind(wx.EVT_CLOSE, self.OnClose)
         self.Center()
@@ -346,6 +524,7 @@ class MainFrame(wx.Frame):
         self.date_col = config.Read('DateCol', '')
         self.specimens_col = config.Read('SpecimensCol', '')
         self.drugs_col = config.Read('Drugs', '').split(';') or []
+        self.current_data_path = ''
         main_sizer = wx.BoxSizer(wx.VERTICAL)
         btn_sizer = wx.BoxSizer(wx.HORIZONTAL)
         load_button = wx.Button(panel, label="Load")
@@ -424,15 +603,16 @@ class MainFrame(wx.Frame):
         try:
             drug_df = pd.read_json(os.path.join('appdata', 'drugs.json'))
         except:
-            pass
+            drug_df = pd.DataFrame()
         if drug_df.empty:
             drug_df = pd.DataFrame(columns=['drug', 'abbreviation', 'group'])
 
         drug_list = []
         drug_df = drug_df.sort_values(['group'])
         for idx, row in drug_df.iterrows():
-            if row['abbreviation']:
-                abbrs = [a.strip().upper() for a in row['abbreviation'].split(',')]
+            abbreviation = row.get('abbreviation', '')
+            if isinstance(abbreviation, str) and abbreviation.strip():
+                abbrs = [a.strip().upper() for a in abbreviation.split(',') if a.strip()]
             else:
                 abbrs = []
             for ab in abbrs:
@@ -455,6 +635,7 @@ class MainFrame(wx.Frame):
             if file_dialog.ShowModal() == wx.ID_CANCEL:
                 return
             filepath = file_dialog.GetPath()
+            self.current_data_path = filepath
             pub.subscribe(self.set_data_olv, 'load_excel_data_finished')
             ReadExcelThread(filepath, 'load_excel_data_finished')
             progress_bar = PulseProgressBarDialog('Loading Data', 'Reading data from {}'.format(filepath))
@@ -472,15 +653,236 @@ class MainFrame(wx.Frame):
         with DrugRegFormDialog() as drug_dlg:
             drug_dlg.ShowModal()
 
+    def require_configuration(self):
+        if not all([self.date_col, self.identifier_col, self.organism_col]):
+            self.configure(None)
+        if not all([self.date_col, self.identifier_col, self.organism_col]):
+            with wx.MessageDialog(self, 'Please configure identifier, date, and organism columns first.',
+                                  'Configuration Required', style=wx.OK) as dlg:
+                dlg.ShowModal()
+            return False
+        if not self.drugs_col:
+            with wx.MessageDialog(self, 'Please configure at least one drug column first.',
+                                  'Configuration Required', style=wx.OK) as dlg:
+                dlg.ShowModal()
+            return False
+        return True
+
+    def build_current_dataframe(self):
+        return pd.DataFrame([d.to_dict(self.colnames) for d in self.data])
+
+    @staticmethod
+    def normalize_sensitivity(value):
+        if pd.isna(value):
+            return ''
+        return str(value).strip().upper()
+
+    def load_organism_lookup(self):
+        organism_df = pd.read_excel(os.path.join('appdata', 'organisms2020.xlsx'))
+        return organism_df[['ORGANISM', 'GENUS', 'SPECIES', 'GRAM']]
+
+    def build_database_profile(self):
+        return {
+            'schema_version': DATABASE_SCHEMA_VERSION,
+            'identifier_col': self.identifier_col,
+            'date_col': self.date_col,
+            'organism_col': self.organism_col,
+            'specimens_col': self.specimens_col,
+            'drugs_col': self.drugs_col,
+            'colnames': self.colnames,
+        }
+
+    def build_database_facts(self, df):
+        drug_columns = [col for col in self.drugs_col if col in df.columns]
+        if not drug_columns:
+            return pd.DataFrame()
+
+        facts_df = df.copy()
+        facts_df['record_id'] = range(len(facts_df))
+        organism_lookup = self.load_organism_lookup().rename(columns={'ORGANISM': self.organism_col})
+        facts_df = facts_df.merge(organism_lookup, on=self.organism_col, how='left')
+        for col in ['GENUS', 'SPECIES', 'GRAM']:
+            if col in facts_df:
+                facts_df[col] = facts_df[col].fillna('')
+
+        id_vars = [col for col in facts_df.columns if col not in drug_columns]
+        melted_df = facts_df.melt(id_vars=id_vars, value_vars=drug_columns,
+                                  var_name='drug', value_name='sensitivity')
+        melted_df['sensitivity'] = melted_df['sensitivity'].map(self.normalize_sensitivity)
+        melted_df = melted_df[melted_df['sensitivity'] != '']
+
+        drug_lookup = self.drug_data[['abbr', 'group']].drop_duplicates().rename(
+            columns={'abbr': 'drug', 'group': 'drug_group'}
+        )
+        melted_df = melted_df.merge(drug_lookup, on='drug', how='inner')
+        melted_df['added_at'] = datetime.utcnow().isoformat(timespec='seconds')
+        return melted_df
+
+    @staticmethod
+    def build_database_metadata(profile_json, source_path):
+        return pd.DataFrame([{
+            'schema_version': DATABASE_SCHEMA_VERSION,
+            'created_at': datetime.utcnow().isoformat(timespec='seconds'),
+            'source_path': source_path or '',
+            'profile_json': profile_json,
+        }])
+
+    def export_database(self, event):
+        if not self.require_configuration():
+            return
+
+        df = self.build_current_dataframe()
+        if df.empty:
+            with wx.MessageDialog(self, 'No data to export. Please load data first.',
+                                  'Save Database', style=wx.OK) as dlg:
+                dlg.ShowModal()
+                return
+
+        facts_df = self.build_database_facts(df)
+        if facts_df.empty:
+            with wx.MessageDialog(self, 'No database rows could be created from the configured drug columns.',
+                                  'Save Database', style=wx.OK) as dlg:
+                dlg.ShowModal()
+                return
+
+        with wx.FileDialog(self, "Please select the database file",
+                           wildcard="SQLite file (*.sqlite;*.db)|*.sqlite;*.db",
+                           style=wx.FD_SAVE | wx.FD_OVERWRITE_PROMPT) as file_dialog:
+            if file_dialog.ShowModal() == wx.ID_CANCEL:
+                return
+            file_path = file_dialog.GetPath()
+            if os.path.splitext(file_path)[1] not in ('.sqlite', '.db'):
+                file_path = file_path + '.sqlite'
+
+        metadata_df = self.build_database_metadata(
+            json.dumps(self.build_database_profile()),
+            self.current_data_path,
+        )
+        try:
+            with sqlite3.connect(file_path) as con:
+                facts_df.to_sql('facts', con=con, if_exists='replace', index=False)
+                metadata_df.to_sql('metadata', con=con, if_exists='replace', index=False)
+        except:
+            with wx.MessageDialog(self, 'Failed to save database.',
+                                  'Save Database', style=wx.OK) as dlg:
+                dlg.ShowModal()
+        else:
+            with wx.MessageDialog(self, 'Database saved.',
+                                  'Save Database', style=wx.OK) as dlg:
+                dlg.ShowModal()
+
+    def read_database(self, file_path):
+        with sqlite3.connect(file_path) as con:
+            facts_df = pd.read_sql_query('SELECT * FROM facts', con)
+            metadata_df = pd.read_sql_query('SELECT * FROM metadata', con)
+        if metadata_df.empty:
+            raise ValueError('metadata is empty')
+        profile = json.loads(metadata_df.iloc[-1]['profile_json'])
+        return facts_df, metadata_df, profile
+
+    def prepare_database_facts(self, facts_df, profile):
+        working_df = facts_df.copy()
+        date_col = profile.get('date_col', '')
+        if date_col and date_col in working_df.columns:
+            working_df[date_col] = pd.to_datetime(working_df[date_col], errors='coerce')
+        return working_df
+
+    def deduplicate_database_facts(self, facts_df, profile):
+        non_drug_columns = [
+            col for col in facts_df.columns
+            if col not in {'record_id', 'drug', 'drug_group', 'sensitivity', 'added_at'}
+        ]
+        with DeduplicateIndexDialog(self, non_drug_columns) as dlg:
+            if dlg.ShowModal() != wx.ID_OK:
+                return None
+            filtered_facts = facts_df
+            date_col = profile.get('date_col', '')
+            if dlg.isSortDate.GetValue() and date_col in filtered_facts.columns:
+                filtered_facts = filtered_facts.sort_values(date_col, ascending=True)
+            records_df = filtered_facts[non_drug_columns + ['record_id']].drop_duplicates('record_id')
+            if dlg.keys:
+                selected_keys = [non_drug_columns[k] for k in dlg.keys]
+                deduped_records = records_df.drop_duplicates(subset=selected_keys, keep='first')
+            else:
+                deduped_records = records_df
+            removed = len(records_df) - len(deduped_records)
+            with wx.MessageDialog(self,
+                                  'No duplicates found.' if removed == 0 else f'{removed} duplicates were removed.',
+                                  'Deduplication Finished', style=wx.OK) as msg_dlg:
+                msg_dlg.ShowModal()
+            return filtered_facts[filtered_facts['record_id'].isin(deduped_records['record_id'])]
+
+    def generate_from_database(self, event):
+        with wx.FileDialog(self, "Select a database",
+                           wildcard="SQLite file (*.sqlite;*.db)|*.sqlite;*.db",
+                           style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) as file_dialog:
+            if file_dialog.ShowModal() == wx.ID_CANCEL:
+                return
+            file_path = file_dialog.GetPath()
+
+        try:
+            facts_df, metadata_df, profile = self.read_database(file_path)
+        except:
+            with wx.MessageDialog(self, 'Failed to read database.',
+                                  'Database', style=wx.OK) as dlg:
+                dlg.ShowModal()
+            return
+
+        facts_df = self.prepare_database_facts(facts_df, profile)
+        facts_df = self.deduplicate_database_facts(facts_df, profile)
+        if facts_df is None:
+            return
+
+        date_col = profile.get('date_col', '')
+        identifier_col = profile.get('identifier_col', '')
+        if not identifier_col or identifier_col not in facts_df.columns:
+            with wx.MessageDialog(self, 'Database metadata is missing the identifier column.',
+                                  'Database', style=wx.OK) as dlg:
+                dlg.ShowModal()
+            return
+
+        columns = [
+            col for col in facts_df.columns
+            if col not in {'record_id', 'drug', 'drug_group', 'sensitivity', 'added_at'}
+        ]
+        if identifier_col in columns:
+            columns.remove(identifier_col)
+        if date_col in columns:
+            columns.remove(date_col)
+
+        start = to_wx_date(facts_df[date_col].min()) if date_col in facts_df.columns else wx.DateTime.Now()
+        end = to_wx_date(facts_df[date_col].max()) if date_col in facts_df.columns else wx.DateTime.Now()
+        with BiogramIndexDialog(self, columns, start=start, end=end) as dlg:
+            if dlg.ShowModal() != wx.ID_OK or not dlg.indexes:
+                return
+            filtered_facts = facts_df
+            if date_col in filtered_facts.columns:
+                start_date = pd.Timestamp(dlg.startDate.GetValue().FormatISODate()).date()
+                end_date = pd.Timestamp(dlg.endDate.GetValue().FormatISODate()).date()
+                filtered_facts = filtered_facts[
+                    (filtered_facts[date_col].dt.date >= start_date)
+                    & (filtered_facts[date_col].dt.date <= end_date)
+                ]
+            DatabaseBiogramGeneratorThread(
+                filtered_facts[[*columns, identifier_col, 'drug_group', 'drug', 'sensitivity']],
+                identifier_col,
+                [columns[idx] for idx in dlg.indexes],
+                dlg.includeCount.GetValue(),
+                dlg.includePercent.GetValue(),
+                dlg.includeNarstStyle.GetValue(),
+            )
+            PulseProgressBarDialog('Generating Antibiogram', f'Calculating from {os.path.basename(file_path)}...')
+
     def setColumns(self):
         columns = []
+        self.colnames = []
         for c in self.df.columns:
             self.colnames.append(c)
             col_type = str(self.df.dtypes.get(c))
             if col_type.startswith('int') or col_type.startswith('float'):
                 formatter = '%.1f'
             elif col_type.startswith('datetime'):
-                formatter = '%Y-%m-%d'
+                formatter = format_datetime
             else:
                 formatter = '%s'
             columns.append(
@@ -544,7 +946,7 @@ class MainFrame(wx.Frame):
 
     def generate(self, event):
         if not all([self.date_col, self.identifier_col, self.organism_col]):
-            self.configure()
+            self.configure(None)
         df = pd.DataFrame([d.to_dict(self.colnames) for d in self.data])
         if df.empty:
             with wx.MessageDialog(self, 'No data provided. Please load data from an Excel file',
@@ -580,12 +982,14 @@ class MainFrame(wx.Frame):
             columns.remove(self.date_col)
 
         with BiogramIndexDialog(self, columns,
-                                start=data[self.date_col].min(),
-                                end=data[self.date_col].max()) as dlg:
+                                start=to_wx_date(data[self.date_col].min()),
+                                end=to_wx_date(data[self.date_col].max())) as dlg:
             if dlg.ShowModal() == wx.ID_OK and dlg.indexes:
                 # filter data within the date range
-                data = data[(data[self.date_col].dt.date >= dlg.startDate.GetValue())
-                            & (data[self.date_col].dt.date <= dlg.endDate.GetValue())]
+                start_date = pd.Timestamp(dlg.startDate.GetValue().FormatISODate()).date()
+                end_date = pd.Timestamp(dlg.endDate.GetValue().FormatISODate()).date()
+                data = data[(data[self.date_col].dt.date >= start_date)
+                            & (data[self.date_col].dt.date <= end_date)]
                 BiogramGeneratorThread(data,
                                        self.date_col,
                                        self.identifier_col,
