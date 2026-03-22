@@ -255,6 +255,39 @@ def to_wx_date(value):
     return wx.DateTime.Now()
 
 
+class HeatmapConfigDialog(wx.Dialog):
+    def __init__(self, parent, fields, start=None, end=None, title='Heatmap Configuration'):
+        super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        form_sizer = wx.FlexGridSizer(3, 2, 10, 10)
+
+        form_sizer.Add(wx.StaticText(self, label='Row Field'))
+        self.field_choice = wx.Choice(self, choices=fields)
+        if fields:
+            self.field_choice.SetSelection(0)
+        form_sizer.Add(self.field_choice, 0, wx.EXPAND)
+
+        form_sizer.Add(wx.StaticText(self, label='Start'))
+        self.startDate = wx.adv.DatePickerCtrl(self, dt=start or wx.DateTime.Now())
+        form_sizer.Add(self.startDate, 0, wx.EXPAND)
+
+        form_sizer.Add(wx.StaticText(self, label='End'))
+        self.endDate = wx.adv.DatePickerCtrl(self, dt=end or wx.DateTime.Now())
+        form_sizer.Add(self.endDate, 0, wx.EXPAND)
+
+        cutoff_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        cutoff_sizer.Add(wx.StaticText(self, label='Minimum Isolates'), 0, wx.RIGHT | wx.ALIGN_CENTER_VERTICAL, 10)
+        self.ncutoff = wx.SpinCtrl(self, min=0, initial=0)
+        cutoff_sizer.Add(self.ncutoff, 0)
+
+        btn_sizer = self.CreateStdDialogButtonSizer(wx.OK | wx.CANCEL)
+        main_sizer.Add(form_sizer, 0, wx.ALL | wx.EXPAND, 10)
+        main_sizer.Add(cutoff_sizer, 0, wx.LEFT | wx.RIGHT | wx.BOTTOM, 10)
+        main_sizer.Add(btn_sizer, 0, wx.ALL | wx.ALIGN_CENTER, 10)
+        self.SetSizer(main_sizer)
+        self.Fit()
+
+
 class BiogramIndexDialog(wx.Dialog):
     def __init__(self, parent, columns, title='Biogram Indexes', start=None, end=None):
         super().__init__(parent, title=title, style=wx.DEFAULT_DIALOG_STYLE | wx.RESIZE_BORDER)
@@ -502,6 +535,7 @@ class MainFrame(wx.Frame):
         drugItem = registryMenu.Append(wx.ID_ANY, 'Drugs', 'Drug Registry')
         exportDatabaseItem = databaseMenu.Append(wx.ID_ANY, 'Save Database', 'Save current data to a database')
         generateDatabaseItem = databaseMenu.Append(wx.ID_ANY, 'Generate Antibiogram', 'Generate antibiogram from a database')
+        heatmapDatabaseItem = databaseMenu.Append(wx.ID_ANY, 'Generate Heatmap', 'Generate heatmap from a database')
         self.SetMenuBar(menuBar)
         self.Bind(wx.EVT_MENU, lambda x: self.Close(), fileItem)
         self.Bind(wx.EVT_MENU, self.open_drug_dialog, drugItem)
@@ -509,6 +543,7 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.open_load_data_dialog, loadItem)
         self.Bind(wx.EVT_MENU, self.export_database, exportDatabaseItem)
         self.Bind(wx.EVT_MENU, self.generate_from_database, generateDatabaseItem)
+        self.Bind(wx.EVT_MENU, self.generate_heatmap_from_database, heatmapDatabaseItem)
 
         self.Bind(wx.EVT_CLOSE, self.OnClose)
         self.Center()
@@ -704,6 +739,10 @@ class MainFrame(wx.Frame):
         for col in ['GENUS', 'SPECIES', 'GRAM']:
             if col in facts_df:
                 facts_df[col] = facts_df[col].fillna('')
+        facts_df['organism_name'] = (
+            facts_df['GENUS'].astype(str).str.strip() + ' ' + facts_df['SPECIES'].astype(str).str.strip()
+        ).str.strip()
+        facts_df.loc[facts_df['organism_name'] == '', 'organism_name'] = facts_df[self.organism_col].astype(str)
 
         id_vars = [col for col in facts_df.columns if col not in drug_columns]
         melted_df = facts_df.melt(id_vars=id_vars, value_vars=drug_columns,
@@ -785,6 +824,22 @@ class MainFrame(wx.Frame):
         date_col = profile.get('date_col', '')
         if date_col and date_col in working_df.columns:
             working_df[date_col] = pd.to_datetime(working_df[date_col], errors='coerce')
+        if 'organism_name' not in working_df.columns:
+            if 'GENUS' in working_df.columns and 'SPECIES' in working_df.columns:
+                working_df['organism_name'] = (
+                    working_df['GENUS'].fillna('').astype(str).str.strip()
+                    + ' ' +
+                    working_df['SPECIES'].fillna('').astype(str).str.strip()
+                ).str.strip()
+                organism_col = profile.get('organism_col', '')
+                if organism_col and organism_col in working_df.columns:
+                    working_df.loc[working_df['organism_name'] == '', 'organism_name'] = (
+                        working_df[organism_col].astype(str)
+                    )
+            else:
+                organism_col = profile.get('organism_col', '')
+                if organism_col and organism_col in working_df.columns:
+                    working_df['organism_name'] = working_df[organism_col].astype(str)
         return working_df
 
     def deduplicate_database_facts(self, facts_df, profile):
@@ -872,6 +927,147 @@ class MainFrame(wx.Frame):
                 dlg.includeNarstStyle.GetValue(),
             )
             PulseProgressBarDialog('Generating Antibiogram', f'Calculating from {os.path.basename(file_path)}...')
+
+    def create_heatmap_dataframe(self, facts_df, row_field, organism_name, identifier_col, cutoff=0):
+        filtered_df = facts_df[facts_df['organism_name'] == organism_name].copy()
+        if filtered_df.empty:
+            return pd.DataFrame()
+
+        filtered_df['is_s'] = (filtered_df['sensitivity'] == 'S').astype('int64')
+        grouped = filtered_df.groupby([row_field, 'drug'], observed=True)[
+            [identifier_col, 'is_s']
+        ].agg({
+            identifier_col: 'count',
+            'is_s': 'sum',
+        })
+        counts = grouped[identifier_col].unstack('drug')
+        sens = grouped['is_s'].unstack('drug')
+        if cutoff > 0:
+            counts = counts.where(counts >= cutoff)
+        return ((sens / counts) * 100).round(2)
+
+    def plot_heatmap(self, df, title):
+        import numpy as np
+        import matplotlib
+        matplotlib.use('Agg')
+        import matplotlib.pyplot as plt
+        import seaborn as sns
+
+        plot_df = df.replace(r'^\s*$', np.nan, regex=True)
+        plot_df = plot_df.dropna(axis=1, how='all').dropna(axis=0, how='all')
+        if plot_df.empty:
+            with wx.MessageDialog(self, 'The plot could not be created because the data table is empty.',
+                                  'Heatmap', style=wx.OK) as dlg:
+                dlg.ShowModal()
+            return
+
+        default_dir = os.path.dirname(self.current_data_path) if self.current_data_path else os.getcwd()
+        file_path = os.path.join(default_dir, 'heatmap.png')
+        with wx.TextEntryDialog(self, 'Enter the output PNG path',
+                                'Save Heatmap', value=file_path) as path_dialog:
+            if path_dialog.ShowModal() != wx.ID_OK:
+                return
+            file_path = path_dialog.GetValue().strip()
+            if not file_path:
+                return
+
+        if os.path.splitext(file_path)[1] != '.png':
+            file_path = file_path + '.png'
+        output_dir = os.path.dirname(file_path) or '.'
+        if not os.path.isdir(output_dir):
+            with wx.MessageDialog(self, 'The selected output folder does not exist.',
+                                  'Heatmap', style=wx.OK) as dlg:
+                return
+                dlg.ShowModal()
+            return
+
+        try:
+            cluster = sns.clustermap(plot_df.fillna(120),
+                                     cmap=sns.diverging_palette(20, 220, n=7),
+                                     linewidths=0.2)
+            cluster.fig.suptitle(title)
+            cluster.savefig(file_path)
+            plt.close(cluster.fig)
+        except:
+            with wx.MessageDialog(self, 'The plot could not be generated or saved.',
+                                  'Heatmap', style=wx.OK) as dlg:
+                dlg.ShowModal()
+        else:
+            with wx.MessageDialog(self, 'Heatmap saved.',
+                                  'Heatmap', style=wx.OK) as dlg:
+                dlg.ShowModal()
+
+    def generate_heatmap_from_database(self, event):
+        with wx.FileDialog(self, "Select a database",
+                           wildcard="SQLite file (*.sqlite;*.db)|*.sqlite;*.db",
+                           style=wx.FD_OPEN | wx.FD_FILE_MUST_EXIST) as file_dialog:
+            if file_dialog.ShowModal() == wx.ID_CANCEL:
+                return
+            file_path = file_dialog.GetPath()
+
+        try:
+            facts_df, metadata_df, profile = self.read_database(file_path)
+        except:
+            with wx.MessageDialog(self, 'Failed to read database.',
+                                  'Database', style=wx.OK) as dlg:
+                dlg.ShowModal()
+            return
+
+        facts_df = self.prepare_database_facts(facts_df, profile)
+        identifier_col = profile.get('identifier_col', '')
+        date_col = profile.get('date_col', '')
+        if not identifier_col or identifier_col not in facts_df.columns:
+            with wx.MessageDialog(self, 'Database metadata is missing the identifier column.',
+                                  'Database', style=wx.OK) as dlg:
+                dlg.ShowModal()
+            return
+
+        heatmap_fields = [
+            col for col in facts_df.columns
+            if col not in {'record_id', 'drug', 'drug_group', 'sensitivity', 'added_at',
+                           'organism_name', identifier_col, date_col}
+        ]
+        if not heatmap_fields:
+            with wx.MessageDialog(self, 'No fields are available to build heatmap rows.',
+                                  'Heatmap', style=wx.OK) as dlg:
+                dlg.ShowModal()
+            return
+
+        start = to_wx_date(facts_df[date_col].min()) if date_col in facts_df.columns else wx.DateTime.Now()
+        end = to_wx_date(facts_df[date_col].max()) if date_col in facts_df.columns else wx.DateTime.Now()
+        with HeatmapConfigDialog(self, heatmap_fields, start=start, end=end) as dlg:
+            if dlg.ShowModal() != wx.ID_OK or dlg.field_choice.GetSelection() == wx.NOT_FOUND:
+                return
+            row_field = heatmap_fields[dlg.field_choice.GetSelection()]
+            cutoff = dlg.ncutoff.GetValue()
+            filtered_facts = facts_df
+            if date_col in filtered_facts.columns:
+                start_date = pd.Timestamp(dlg.startDate.GetValue().FormatISODate()).date()
+                end_date = pd.Timestamp(dlg.endDate.GetValue().FormatISODate()).date()
+                filtered_facts = filtered_facts[
+                    (filtered_facts[date_col].dt.date >= start_date)
+                    & (filtered_facts[date_col].dt.date <= end_date)
+                ]
+
+        organisms = sorted([name for name in filtered_facts['organism_name'].dropna().unique() if str(name).strip()])
+        if not organisms:
+            with wx.MessageDialog(self, 'No organisms are available for heatmap generation.',
+                                  'Heatmap', style=wx.OK) as dlg:
+                dlg.ShowModal()
+            return
+
+        with wx.SingleChoiceDialog(self, "Select an organism", "Heatmap Organism", organisms) as org_dlg:
+            if org_dlg.ShowModal() != wx.ID_OK:
+                return
+            organism_name = org_dlg.GetStringSelection()
+
+        heatmap_df = self.create_heatmap_dataframe(filtered_facts, row_field, organism_name, identifier_col, cutoff)
+        if heatmap_df.empty:
+            with wx.MessageDialog(self, 'No heatmap data could be generated for the selected organism and field.',
+                                  'Heatmap', style=wx.OK) as dlg:
+                dlg.ShowModal()
+            return
+        self.plot_heatmap(heatmap_df, f'{organism_name} by {row_field}')
 
     def setColumns(self):
         columns = []
